@@ -97,7 +97,8 @@ select,input[type=text],input[type=number],input[type=time],textarea{font:inheri
 #netInfo{display:flex;gap:8px;align-items:center;font-size:12px}#netInfo:empty{display:none}#netSync{color:#d1fae5}
 #netBanner{display:none;background:#b45309;color:#fff;padding:6px 14px;font-size:13px;gap:10px;align-items:center;flex-wrap:wrap}
 body.somenteLeitura #netBanner{display:flex}
-body.somenteLeitura #bImport,body.somenteLeitura #bAdd,body.somenteLeitura #bGeo,body.somenteLeitura #bOpt,body.somenteLeitura #bPE{display:none}
+body.somenteLeitura #bImport,body.somenteLeitura #bAdd,body.somenteLeitura #bGeo,body.somenteLeitura #bOpt{display:none}
+body.somenteLeitura :is(#peTab input,#peTab select,#peTab textarea,#peTab button,#peCopy){pointer-events:none;opacity:.45}
 body.somenteLeitura :is(#pStops,#pVeh,#routes) :is(input,select,textarea,button):not(#buscaParadas):not([data-foco]),body.somenteLeitura .leaflet-popup-content button,body.somenteLeitura .leaflet-popup-content input{pointer-events:none;opacity:.45}
 body.somenteLeitura a[href]{pointer-events:auto!important;opacity:1!important}
 body.naoAdmin #pCfg :is(input,select,textarea,button):not([data-pnome]):not([data-ppapel]):not(#netSair){pointer-events:none;opacity:.45}
@@ -725,7 +726,7 @@ async function tentarNomin(q,ctx,near){let fraco=null;
    const g={lat,lng,src:'nominatim',prec:nv,v3:1,label:r.display_name};if(nv!=='bairro')return{g};if(!fraco)fraco=g}}catch(e){}
  return{fraco}}
 async function geocodeAddr(q,endereco){
- const d=cfg().depot,near=p=>hav(d,p)<150;const ctx=endereco!=null?contextoEndereco(endereco,q):null;let fraco=null,r;
+ const d=cfg().depot,near=p=>hav(d,p)<450;const ctx=endereco!=null?contextoEndereco(endereco,q):null;let fraco=null,r;
  // 1) CEP primeiro: dá rua + cidade oficiais
  let viaCep=null;
  if(ctx&&ctx.cep){try{const j=await (await fetchT('https://brasilapi.com.br/api/cep/v2/'+ctx.cep,12000)).json();if(j&&j.city){viaCep=j;ctx.cidade=nrm(j.city)}}catch(e){}}
@@ -745,6 +746,7 @@ async function geocodeAddr(q,endereco){
 /* pino suspeito = localizado pela versão antiga (podia cair no centro da cidade) */
 function geoSuspeito(s){return s.lat!=null&&(s.geoSrc==='photon'||s.geoSrc==='nominatim'||s.geoSrc==='cep')&&!s.geoV3}
 async function geocodeAll(force){
+ if(geocodeAll.busy)return;geocodeAll.busy=true;try{
  const list=plan().stops.filter(s=>s.geoSrc!=='manual'&&s.geoSrc!=='coord'&&(force||s.lat==null||geoSuspeito(s)||fixoDe(s.endereco)||((cfg().googleKey||'').trim()&&s.geoSrc!=='google')));
  let ok=0,fail=0,n=0,conf=0;
  for(const s of list){
@@ -760,9 +762,11 @@ async function geocodeAll(force){
    if(s.refLat!=null&&g.src!=='manual'&&hav({lat:s.lat,lng:s.lng},{lat:s.refLat,lng:s.refLng})>1){s.geoPrec='conferir';s.geoNota='o endereço caiu a '+hav({lat:s.lat,lng:s.lng},{lat:s.refLat,lng:s.refLng}).toFixed(1)+' km da latitude/longitude da planilha — confira o pino';conf++}}
   else if(s.refLat!=null){s.lat=s.refLat;s.lng=s.refLng;s.geoSrc='referência da planilha';s.geoPrec='conferir';s.geoNota='endereço não encontrado — pino colocado pela latitude/longitude da planilha';ok++;conf++}
   else{s.lat=null;s.lng=null;s.geoSrc='falhou';fail++}
+  const cur=plan().stops.find(x=>x.id===s.id);if(cur&&cur!==s)for(const k of ['lat','lng','geoSrc','geoPrec','geoV3','geoNota'])cur[k]=s[k];
  }
  save();invalidate();
  notify(`Endereços: ${ok} localizados pelo endereço${conf?` · ${conf} para conferir no mapa (pino laranja)`:''}${fail?` · ${fail} não encontrados (use 📍 marcar no mapa)`:''}`,fail?'bad':'');
+ }finally{geocodeAll.busy=false}
  await recalc();
 }
 
@@ -773,8 +777,14 @@ async function recalc(){
  await ensureMatrix();
  const S=stopsById();sims={};
  for(const v of state.vehicles){const ids=(plan().routes[v.id]||[]).filter(x=>matIdx[x]!=null);if(ids.length)sims[v.id]=simulate(v,ids,M,matIdx,S,cfg())}
- save();renderAll();agendarAnalise();
+ save();renderAll();agendarAnalise();autoLocalizar();agendarRepublicar();
 }
+function autoLocalizar(){if(geocodeAll.busy||(NET&&!podeEditar))return;const f=plan().stops.filter(s=>s.lat==null&&s.geoSrc!=='falhou'&&s.geoSrc!=='manual');if(!f.length)return;
+ const k=plan().data+'|'+f.map(s=>s.id+s.endereco).join(',');if(autoLocalizar.k===k)return;autoLocalizar.k=k;setTimeout(()=>geocodeAll(false),400)}
+function assinaturaRota(vid){const sim=sims[vid];if(!sim)return'';const S=stopsById();return sim.stops.map(st=>{const x=S[st.id]||{};return [st.id,fmtHM(st.inicio),x.endereco,x.lat,x.lng,x.volume,x.obs].join('~')}).join('|')}
+let repubTimer=null;function agendarRepublicar(){clearTimeout(repubTimer);repubTimer=setTimeout(async()=>{if(!celOk()||(NET&&!podeEditar))return;const P=plan();const pub=P.celPub||{};P.celSig=P.celSig||{};let n=0;
+ for(const vid of Object.keys(pub)){if(!sims[vid])continue;const sg=assinaturaRota(vid);if(P.celSig[vid]===sg)continue;try{await publicarRota(vid);P.celSig[vid]=sg;n++}catch(e){}}
+ if(n){save();notify(`📲 Rota atualizada no celular de ${n} motorista(s)`)}},3000)}
 function renderAll(){updDateTag();renderStops();renderVehicles();renderConfig();if(NET)carregarUsuarios();renderRoutes();renderMap();updateButtons();avisoSuspeitos()}
 function avisoSuspeitos(){const n=plan().stops.filter(geoSuspeito).length;const k=plan().data+'|'+n;if(!n||avisoSuspeitos.k===k)return;avisoSuspeitos.k=k;notify(`⚠ ${n} entrega(s) deste dia foram localizadas pela versão antiga e podem estar no lugar errado (centro da cidade ou rua de mesmo nome em outra cidade). Clique em ② Localizar endereços para corrigir.`,'bad')}
 function updateButtons(){
@@ -936,6 +946,8 @@ function renderRoutes(){
   if(grp.length===1){h+=cards[grp[0].id];continue}
   h+=`<div class="grupoRot"><div class="grupoTit">🚚 ${esc(v.motorista||v.nome)} — ${grp.length} roteiros no dia</div>${grp.map(x=>cards[x.id]).join('')}</div>`}
  for(const v of state.vehicles){if(v.parentId&&cards[v.id]&&!vById(v.parentId))h+=cards[v.id]}
+ const semLoc=plan().stops.filter(s=>s.lat==null&&routeOf(s.id));
+ if(semLoc.length)h+=`<div class="card" style="--c:#b45309"><h3>📍 Sem localização (${semLoc.length}) — não entram no cálculo da rota</h3><p class="small muted">Estas entregas já estão num carro, mas sem pino no mapa elas não aparecem na rota, no WhatsApp nem no celular do motorista. ${geocodeAll.busy?'Localizando agora…':'Clique em 📍 e depois no local exato no mapa, ou em ② Localizar endereços.'}</p><ul class="slist">${semLoc.map(s=>{const v=vById(routeOf(s.id));return`<li data-sid="${s.id}"><span class="seq" style="background:#b45309">!</span><span><b>${esc(s.cliente||'')}</b>${s.os?` <span class="muted small">Ped. ${esc(s.os)}</span>`:''} <span class="kpi small">${esc(v?rotLabel(v):'')}</span><br><span class="small muted">${esc(s.endereco)}</span>${s.geoSrc==='falhou'?'<br><span class="small" style="color:var(--bad)">endereço não encontrado automaticamente</span>':''}</span><span><button class="sm" data-pin="${s.id}">📍 marcar</button></span></li>`}).join('')}</ul></div>`;
  const sem=plan().stops.filter(s=>!routeOf(s.id));
  const nc=new Set(plan().naoCoube||[]);
  if(sem.length&&nR)h+=`<div class="card" data-drop="" style="--c:#b91c1c"><h3>${sem.some(s=>nc.has(s.id))?'Não couberam (horário ou capacidade)':'Sem rota'} (${sem.length})</h3>
@@ -1018,7 +1030,8 @@ function renderMap(){
    rotaOSRM(coords,false).then(o=>{if(o&&o.geom){pl.setLatLngs(o.geom);pl.setStyle({dashArray:null,weight:4,opacity:.8})}});
   }
  }
- if(!renderMap.fitted&&bounds.length>1){map.fitBounds(bounds,{padding:[30,30]});renderMap.fitted=true}
+ renderMap.bounds=bounds;
+ if(!renderMap.fitted&&bounds.length>1){map.invalidateSize(false);const el=map.getContainer();if(el.clientHeight>60&&el.clientWidth>60){map.fitBounds(bounds,{padding:[30,30],maxZoom:14});renderMap.fitted=true}}
 }
 /* ---------- análise: rodízio + pedágio ---------- */
 const rotaCache={};let anal={},analVer=0;
@@ -1125,6 +1138,7 @@ async function assignBest(sid,vid,pos){
   if(!v.ativo){v.ativo=true}
  }
  await recalc();
+ if(vid&&s&&s.lat==null)notify('Esta entrega ainda não tem localização no mapa — ela fica no quadro "📍 Sem localização" até ser localizada','bad');
  if(vid&&sims[vid]){const st=sims[vid].stops.find(x=>x.id===sid);if(st&&st.late>0)notify(`Atenção: neste carro a entrega chega ${Math.round(st.late)} min depois do horário do cliente`,'bad');}
 }
 
@@ -1313,7 +1327,7 @@ function linkMotorista(vid){const P=plan();const tk=P.rotaTokens&&P.rotaTokens[v
 async function publicarRota(vid){const v=vById(vid),sim=sims[vid];if(!v||!sim)return;const S=stopsById();const tk=tokenRota(vid);
  const paradas=sim.stops.map((st,i)=>{const s=S[st.id];return{id:s.id,seq:i+1,cliente:s.cliente||'',endereco:s.endereco||'',os:s.os||'',janela:fmtHM(s.jIni)+(jEnd(s,cfg())!=null?'–'+fmtHM(jEnd(s,cfg())):''),previsto:fmtHM(st.inicio),caixas:s.volume||null,obs:s.obs||'',lat:s.lat,lng:s.lng,tel:s.telefone||''}});
  await celRpc('publicar_rota',{p_secret:(cfg().celSecret||'').trim(),p_id:tk,p_data:plan().data,p_motorista:nomePlanilha(v),p_veiculo:v.nome||'',p_paradas:paradas});
- const P=plan();P.celPub=P.celPub||{};P.celPub[vid]=new Date().toISOString();save();
+ const P=plan();P.celPub=P.celPub||{};P.celPub[vid]=new Date().toISOString();P.celSig=P.celSig||{};P.celSig[vid]=assinaturaRota(vid);save();
  if(!cfg().celPagina)notify('Rota publicada, mas falta o endereço da página do motorista (Configuração › Baixa pelo celular)','bad');
 }
 const fotoUrl=path=>celBase()+'/storage/v1/object/public/baixas/'+path.split('/').map(encodeURIComponent).join('/');
@@ -1589,7 +1603,7 @@ $('#pdate').value=plan().data;
 const UI_KEY='berlaroute_ui';
 function uiGet(){try{return JSON.parse(localStorage.getItem(UI_KEY))||{}}catch(e){return{}}}
 function uiSet(o){try{localStorage.setItem(UI_KEY,JSON.stringify(Object.assign(uiGet(),o)))}catch(e){}}
-function mapaAjusta(){if(map)setTimeout(()=>map.invalidateSize(),60)}
+function mapaAjusta(){if(map)setTimeout(()=>{map.invalidateSize();if(!renderMap.fitted&&(renderMap.bounds||[]).length>1){const el=map.getContainer();if(el.clientHeight>60){map.fitBounds(renderMap.bounds,{padding:[30,30],maxZoom:14});renderMap.fitted=true}}},60)}
 function painel(abrir){document.body.classList.toggle('semPainel',!abrir);$('#bPainel').classList.toggle('on',abrir);uiSet({painel:abrir});mapaAjusta()}
 (function initLayout(){
  const u=uiGet();painel(u.painel===true);
