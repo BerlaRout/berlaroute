@@ -515,24 +515,46 @@ async function carregarDoServidor(){
  if(servidorVazio)notify(perfil.papel==='admin'?'O servidor ainda está vazio. Abra o roteirizador do seu computador e use Configuração › Enviar meus dados para o servidor.':'O servidor ainda está vazio. Aguarde o administrador enviar os dados.','bad');
 }
 async function buscarPlanoServidor(d){const r=((await sb('/rest/v1/planos?select=data,plano,atualizado_em,atualizado_por&data=eq.'+d))||[])[0];return r||null}
-function modoLeitura(on,msg,podeAssumir){podeEditar=!on;document.body.classList.toggle('somenteLeitura',on);const b=$('#netBanner');
- if(b)b.innerHTML=on?`<span>🔒 ${esc(msg||'')}</span><span class="spacer"></span>${perfil&&perfil.papel!=='consulta'?'<button class="sm" id="netTentar">Tentar editar</button>':''}${podeAssumir?'<button class="sm" id="netAssumir">Assumir a edição</button>':''}`:'';
+/* trava v2: libera sozinha quando o editor fica parado, "Pedir para editar" e retomada automática */
+const OCIOSO_MS=3*60000;let ultimaAtividade=Date.now(),liberouPorOcio=false,pedidoEnviado=false,pedidoVisto=null,pedidoTimer=null;
+['mousedown','keydown','touchstart','wheel'].forEach(ev=>document.addEventListener(ev,()=>{ultimaAtividade=Date.now();
+ if(NET&&perfil&&liberouPorOcio&&!podeEditar&&perfil.papel!=='consulta'){liberouPorOcio=false;travaDoDia(false,true)}},{passive:true,capture:true}));
+function modoLeitura(on,msg,podeAssumir,podePedir){podeEditar=!on;document.body.classList.toggle('somenteLeitura',on);const b=$('#netBanner');
+ const ed=perfil&&perfil.papel!=='consulta';
+ if(b)b.innerHTML=on?`<span>🔒 ${esc(msg||'')}</span><span class="spacer"></span>${ed&&podePedir?`<button class="sm" id="netPedir" ${pedidoEnviado?'disabled':''}>${pedidoEnviado?'Pedido enviado — aguardando…':'✋ Pedir para editar'}</button>`:''}${ed?'<button class="sm" id="netTentar">Tentar editar</button>':''}${podeAssumir?'<button class="sm" id="netAssumir">Assumir a edição</button>':''}`:'';
  if(typeof renderAll==='function'&&!carregandoServidor)renderMap()}
-async function soltarTravaAtual(){clearInterval(travaTimer);clearInterval(leituraTimer);if(travaDia){const d=travaDia;travaDia=null;try{await sbRpc('soltar_trava',{p_data:d})}catch(e){}}}
-async function travaDoDia(forcar){
+async function soltarTravaAtual(){clearInterval(travaTimer);clearInterval(leituraTimer);clearTimeout(pedidoTimer);fecharPedido();if(travaDia){const d=travaDia;travaDia=null;try{await sbRpc('soltar_trava',{p_data:d})}catch(e){}}}
+async function liberarEdicao(motivo){clearTimeout(syncTimer);try{await sincronizar()}catch(e){}await soltarTravaAtual();
+ modoLeitura(true,motivo,perfil.papel==='admin',false);iniciarLeitura()}
+function fecharPedido(){const x=$('#pedidoBox');if(x)x.remove()}
+function mostrarPedido(nome){if($('#pedidoBox'))return;let n=60;const x=document.createElement('div');x.id='pedidoBox';
+ x.style.cssText='position:fixed;right:16px;bottom:16px;z-index:3500;background:var(--panel);color:var(--ink);border:2px solid var(--warn);border-radius:12px;padding:14px;max-width:340px;box-shadow:0 10px 30px rgba(0,0,0,.3)';
+ x.innerHTML=`<b>✋ ${esc(nome)} quer editar este dia</b><p class="small" style="margin:6px 0 10px">Tudo o que você fez já está salvo. Se não responder, a edição passa para ${esc(nome)} em <b id="pedidoSeg">60</b>s.</p><div class="row" style="margin:0"><button class="pri sm" id="pedidoLiberar">Liberar agora</button><button class="sm" id="pedidoManter">Continuar editando</button></div>`;
+ document.body.appendChild(x);clearInterval(pedidoTimer);pedidoTimer=setInterval(()=>{n--;const e=$('#pedidoSeg');if(e)e.textContent=n;if(n<=0){clearInterval(pedidoTimer);fecharPedido();liberarEdicao(`A edição foi passada para ${nome}. Você está só vendo.`)}},1000)}
+async function travaDoDia(forcar,silencioso){
  clearInterval(travaTimer);clearInterval(leituraTimer);const d=plan().data;
  if(!perfil)return;
  if(perfil.papel==='consulta'){modoLeitura(true,'Perfil consulta: você vê as rotas e as baixas, mas não altera.');iniciarLeitura();return}
  try{const r=await sbRpc('pegar_trava',{p_data:d,p_nome:quemSou(),p_forcar:!!forcar});
-  if(r&&r.ok){travaDia=d;modoLeitura(false);travaTimer=setInterval(async()=>{try{const x=await sbRpc('pegar_trava',{p_data:d,p_nome:quemSou(),p_forcar:false});if(!x.ok){travaDia=null;clearInterval(travaTimer);modoLeitura(true,`${x.nome} assumiu a edição deste dia. Você está só vendo.`,perfil.papel==='admin');iniciarLeitura()}}catch(e){}},120000)}
-  else{modoLeitura(true,`Em edição por ${r.nome} — você está só vendo. Atualiza sozinho a cada 30 segundos.`,perfil.papel==='admin');iniciarLeitura()}
+  if(r&&r.ok){travaDia=d;pedidoEnviado=false;liberouPorOcio=false;modoLeitura(false);if(silencioso)notify('✏️ Você voltou a editar este dia');
+   travaTimer=setInterval(async()=>{
+    if(Date.now()-ultimaAtividade>OCIOSO_MS){liberouPorOcio=true;await liberarEdicao('Você ficou alguns minutos sem mexer, então a edição foi liberada para os outros. É só clicar em qualquer lugar para voltar a editar.');return}
+    try{const x=await sbRpc('pegar_trava',{p_data:d,p_nome:quemSou(),p_forcar:false});
+     if(!x.ok){travaDia=null;clearInterval(travaTimer);fecharPedido();modoLeitura(true,`${x.nome} assumiu a edição deste dia. Você está só vendo.`,perfil.papel==='admin',true);iniciarLeitura();return}
+     if(x.pedido_por&&x.pedido_por!==pedidoVisto){pedidoVisto=x.pedido_por;
+      if(Date.now()-ultimaAtividade>60000)await liberarEdicao(`A edição foi passada para ${x.pedido_por}. Você está só vendo.`);else mostrarPedido(x.pedido_por)}
+     if(!x.pedido_por)pedidoVisto=null}catch(e){}},20000)}
+  else{if(silencioso){liberouPorOcio=false}modoLeitura(true,`Em edição por ${r.nome} — você está só vendo. A tela se atualiza sozinha e libera quando ${r.nome} sair.`,perfil.papel==='admin',true);iniciarLeitura()}
  }catch(e){modoLeitura(true,'Sem conexão com o servidor ('+e.message+'). Nada será salvo até reconectar.');iniciarLeitura()}
 }
-function iniciarLeitura(){clearInterval(leituraTimer);leituraTimer=setInterval(atualizarLeitura,30000)}
+async function pedirEdicao(){const d=plan().data;try{const r=await sbRpc('pedir_trava',{p_data:d,p_nome:quemSou()});
+ if(r&&r.ok){pedidoEnviado=true;notify('Pedido enviado — quem está editando tem 1 minuto para liberar');modoLeitura(true,$('#netBanner span')?$('#netBanner span').textContent.replace(/^🔒\s*/,''):'',perfil.papel==='admin',true);iniciarLeitura(10000)}
+ else await travaDoDia()}catch(e){notify('Não consegui enviar o pedido: '+e.message,'bad')}}
+function iniciarLeitura(ms){clearInterval(leituraTimer);leituraTimer=setInterval(atualizarLeitura,ms||15000)}
 async function atualizarLeitura(){if(podeEditar||!perfil)return;const d=plan().data;
  try{const r=await buscarPlanoServidor(d);const m=planoMeta[d];
   if(r&&(!m||m.em!==r.atualizado_em)){state.plans[d]=r.plano;planoMeta[d]={em:r.atualizado_em,por:r.atualizado_por};ultimoPush['p:'+d]=JSON.stringify(r.plano);state.plan=JSON.parse(JSON.stringify(r.plano));state.plans[d]=state.plan;indexarTokens();aplicarVeiculosDoDia(state.plan);invalidate();await recalc();updDateTag()}
-  if(perfil.papel!=='consulta'){const x=await sbRpc('pegar_trava',{p_data:d,p_nome:quemSou(),p_forcar:false});if(x&&x.ok){await travaDoDia();notify('O dia foi liberado — agora você pode editar')}}
+  if(perfil.papel!=='consulta'&&!liberouPorOcio){const x=await sbRpc('pegar_trava',{p_data:d,p_nome:quemSou(),p_forcar:false});if(x&&x.ok){await travaDoDia();notify('✏️ O dia foi liberado — agora você pode editar')}}
  }catch(e){}}
 async function aposTrocarDia(){
  if(!NET||!perfil)return;const d=plan().data;
@@ -1503,7 +1525,10 @@ document.addEventListener('click',async e=>{
  const b=e.target.closest('button,[data-t],[data-foco]');if(!b)return;const D=b.dataset;
  if(D.foco){focarParada(D.foco);return}
  if(b.id==='netSair'){sairRede();return}
- if(b.id==='netTentar'){travaDoDia();return}
+ if(b.id==='netTentar'){liberouPorOcio=false;travaDoDia();return}
+ if(b.id==='netPedir'){pedirEdicao();return}
+ if(b.id==='pedidoLiberar'){clearInterval(pedidoTimer);fecharPedido();const n=pedidoVisto||'a outra pessoa';liberarEdicao(`A edição foi passada para ${n}. Você está só vendo.`);return}
+ if(b.id==='pedidoManter'){clearInterval(pedidoTimer);fecharPedido();notify('Ok, você continua editando');return}
  if(b.id==='netAssumir'){if(confirm('Assumir a edição deste dia? Quem está editando passa a só ver.'))travaDoDia(true);return}
  if(b.id==='bEnviarSrv'){const em=$('#srvEmail').value,se=$('#srvSenha').value;if(!em||!se){notify('Preencha e-mail e senha','bad');return}b.disabled=true;b.textContent='Enviando…';try{const n=await enviarParaServidor(em,se);$('#srvSenha').value='';notify(`✅ Enviado: motoristas, configuração, endereços e ${n} roteiro(s). Já pode usar o link da versão em rede.`)}catch(err){notify('Não enviou: '+err.message,'bad')}b.disabled=false;b.textContent='Enviar meus dados para o servidor';return}
  if(D.desfaz){const P=plan();if(P.baixa&&P.baixa[D.desfaz]&&confirm('Apagar a baixa desta entrega? Ela volta a ficar pendente.')){delete P.baixa[D.desfaz];save();renderRoutes();if($('#mPE').classList.contains('on'))renderPE();notify('Baixa apagada — a entrega voltou a ficar pendente')}return}
