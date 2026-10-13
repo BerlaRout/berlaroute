@@ -99,7 +99,7 @@ select,input[type=text],input[type=number],input[type=time],textarea{font:inheri
 body.somenteLeitura #netBanner{display:flex}
 body.somenteLeitura #bImport,body.somenteLeitura #bAdd,body.somenteLeitura #bGeo,body.somenteLeitura #bOpt,body.somenteLeitura #bPE{display:none}
 body.somenteLeitura :is(#pStops,#pVeh,#routes) :is(input,select,textarea,button):not(#buscaParadas):not([data-foco]),body.somenteLeitura .leaflet-popup-content button,body.somenteLeitura .leaflet-popup-content input{pointer-events:none;opacity:.45}
-body.somenteLeitura .slist li[draggable]{pointer-events:none}
+body.somenteLeitura a[href]{pointer-events:auto!important;opacity:1!important}
 body.naoAdmin #pCfg :is(input,select,textarea,button):not([data-pnome]):not([data-ppapel]):not(#netSair){pointer-events:none;opacity:.45}
 body.modoRede [data-dp],body.modoRede .soLocal{display:none!important}
 </style>
@@ -1572,7 +1572,7 @@ document.addEventListener('change',async e=>{
  if(el.id==='fBk'){const f=el.files[0];if(!f)return;try{const s=JSON.parse(await f.text());if(!s.config||!s.vehicles)throw 0;if(confirm('Substituir tudo neste navegador pelo backup?')){state={...defaultState(),...s};invalidate();renderMap.fitted=false;$('#pdate').value=plan().data;await recalc()}}catch(err){notify('Arquivo de backup inválido.')}return}
 });
 let dragSid=null;
-document.addEventListener('dragstart',e=>{const li=e.target.closest&&e.target.closest('li[data-sid]');if(!li)return;dragSid=li.dataset.sid;e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',dragSid)}catch(err){}});
+document.addEventListener('dragstart',e=>{const li=e.target.closest&&e.target.closest('li[data-sid]');if(!li)return;if(!podeEditar){e.preventDefault();return}dragSid=li.dataset.sid;e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',dragSid)}catch(err){}});
 document.addEventListener('dragover',e=>{if(!dragSid)return;const c=e.target.closest&&e.target.closest('[data-drop]');if(!c)return;e.preventDefault();document.querySelectorAll('.dropover').forEach(x=>x!==c&&x.classList.remove('dropover'));c.classList.add('dropover')});
 document.addEventListener('dragend',()=>{dragSid=null;document.querySelectorAll('.dropover').forEach(x=>x.classList.remove('dropover'))});
 document.addEventListener('drop',async e=>{if(!dragSid)return;const c=e.target.closest&&e.target.closest('[data-drop]');if(!c)return;e.preventDefault();const sid=dragSid;dragSid=null;c.classList.remove('dropover');
