@@ -762,7 +762,7 @@ async function geocodeAddr(q,endereco){
  if(viaCep&&viaCep.street){await sleep(1100);r=await tentarNomin([viaCep.street+(ctx.num?' '+ctx.num:''),viaCep.city,viaCep.state,'Brasil'].join(', '),ctx,near);if(r.g)return r.g;fraco=fraco||r.fraco}
  // 5) coordenada do próprio CEP (rua), se for da mesma região
  const c=viaCep&&viaCep.location&&viaCep.location.coordinates;
- if(c&&c.latitude&&viaCep.street&&near({lat:+c.latitude,lng:+c.longitude}))return{lat:+c.latitude,lng:+c.longitude,src:'cep',prec:'CEP',v3:1,label:[viaCep.street,viaCep.neighborhood,viaCep.city].filter(Boolean).join(', ')};
+ if(c&&c.latitude&&viaCep.street&&near({lat:+c.latitude,lng:+c.longitude})&&!(Math.abs(+c.latitude+23.5475)<0.002&&Math.abs(+c.longitude+46.6361)<0.002))return{lat:+c.latitude,lng:+c.longitude,src:'cep',prec:'CEP',v3:1,label:[viaCep.street,viaCep.neighborhood,viaCep.city].filter(Boolean).join(', ')};
  return fraco;
 }
 /* pino suspeito = localizado pela versão antiga (podia cair no centro da cidade) */
@@ -839,7 +839,7 @@ function renderStops(){
  S.forEach(s=>{
   const r=routeOf(s.id);
   const gs=s.lat==null?`<span class="bad" title="Endereço não localizado">●</span>`:(s.geoPrec&&s.geoPrec!=='número'&&s.geoSrc!=='manual'?`<span class="warn" title="Localização aproximada (${esc(s.geoPrec)}) — confira o pino">●</span>`:`<span class="ok" title="Localizado">●</span>`);
-  const vq=r?vById(r):null;h+=`<tr data-q="${esc(nrm([s.cliente,s.os,s.endereco,s.obs,vq?rotLabel(vq):'sem rota'].join(' ')))}"><td>${gs}</td><td><b class="focoParada" data-foco="${s.id}" style="cursor:pointer" title="Ver no mapa">${esc(s.cliente||'(sem nome)')}</b>${s.os?` <span class="muted small">OS ${esc(s.os)}</span>`:''}<br><span class="small muted">${esc(s.endereco)}</span>${s.obs?`<br><span class="small">${esc(s.obs)}</span>`:''}<div style="margin-top:3px;white-space:nowrap"><button class="sm" data-ed="${s.id}" title="Editar">✎ editar</button> <button class="sm" data-pin="${s.id}" title="Marcar no mapa">📍 marcar</button> <button class="sm ghost" data-del="${s.id}" title="Excluir">✕</button></div></td>
+  const vq=r?vById(r):null;h+=`<tr data-q="${esc(nrm([s.cliente,s.os,s.endereco,s.obs,vq?rotLabel(vq):'sem rota'].join(' ')))}"><td>${gs}</td><td><b class="focoParada" data-foco="${s.id}" style="cursor:pointer" title="Ver no mapa">${esc(s.cliente||'(sem nome)')}</b>${s.os?` <span class="muted small">OS ${esc(s.os)}</span>`:''}<br><span class="small muted">${esc(s.endereco)}</span>${s.obs?`<br><span class="small">${esc(s.obs)}</span>`:''}<div style="margin-top:3px;white-space:nowrap"><button class="sm" data-ed="${s.id}" title="Editar">✎ editar</button> <button class="sm" data-pin="${s.id}" title="Marcar no mapa">📍 marcar</button> <button class="sm" data-gcola="${s.id}" title="Colar link ou coordenadas do Google Maps">🔗 Google</button> <button class="sm ghost" data-del="${s.id}" title="Excluir">✕</button></div></td>
   <td class="n small">${fmtHM(s.jIni)}${jEnd(s,cfg())!=null?'–'+fmtHM(jEnd(s,cfg())):''}</td>
   <td><select data-asg="${s.id}" style="max-width:130px">${vopts(r)}</select></td>
 </tr>`;
@@ -969,7 +969,7 @@ function renderRoutes(){
   h+=`<div class="grupoRot"><div class="grupoTit">🚚 ${esc(v.motorista||v.nome)} — ${grp.length} roteiros no dia</div>${grp.map(x=>cards[x.id]).join('')}</div>`}
  for(const v of state.vehicles){if(v.parentId&&cards[v.id]&&!vById(v.parentId))h+=cards[v.id]}
  const semLoc=plan().stops.filter(s=>s.lat==null&&routeOf(s.id));
- if(semLoc.length)h+=`<div class="card" style="--c:#b45309"><h3>📍 Sem localização (${semLoc.length}) — não entram no cálculo da rota</h3><p class="small muted">Estas entregas já estão num carro, mas sem pino no mapa elas não aparecem na rota, no WhatsApp nem no celular do motorista. ${geocodeAll.busy?'Localizando agora…':'Clique em <b>Localizar agora</b> ou em 📍 e depois no local exato no mapa.'}</p>${geocodeAll.busy?'':'<div class="row" style="margin:4px 0"><button class="sm pri" onclick="document.getElementById(\'bGeo\').click()">② Localizar agora</button></div>'}<ul class="slist">${semLoc.map(s=>{const v=vById(routeOf(s.id));return`<li data-sid="${s.id}"><span class="seq" style="background:#b45309">!</span><span><b>${esc(s.cliente||'')}</b>${s.os?` <span class="muted small">Ped. ${esc(s.os)}</span>`:''} <span class="kpi small">${esc(v?rotLabel(v):'')}</span><br><span class="small muted">${esc(s.endereco)}</span>${s.geoSrc==='falhou'?'<br><span class="small" style="color:var(--bad)">endereço não encontrado automaticamente</span>':''}</span><span><button class="sm" data-pin="${s.id}">📍 marcar</button></span></li>`}).join('')}</ul></div>`;
+ if(semLoc.length)h+=`<div class="card" style="--c:#b45309"><h3>📍 Sem localização (${semLoc.length}) — não entram no cálculo da rota</h3><p class="small muted">Estas entregas já estão num carro, mas sem pino no mapa elas não aparecem na rota, no WhatsApp nem no celular do motorista. ${geocodeAll.busy?'Localizando agora…':'Clique em <b>Localizar agora</b> ou em 📍 e depois no local exato no mapa.'}</p>${geocodeAll.busy?'':'<div class="row" style="margin:4px 0"><button class="sm pri" onclick="document.getElementById(\'bGeo\').click()">② Localizar agora</button></div>'}<ul class="slist">${semLoc.map(s=>{const v=vById(routeOf(s.id));return`<li data-sid="${s.id}"><span class="seq" style="background:#b45309">!</span><span><b>${esc(s.cliente||'')}</b>${s.os?` <span class="muted small">Ped. ${esc(s.os)}</span>`:''} <span class="kpi small">${esc(v?rotLabel(v):'')}</span><br><span class="small muted">${esc(s.endereco)}</span>${s.geoSrc==='falhou'?'<br><span class="small" style="color:var(--bad)">endereço não encontrado automaticamente</span>':''}</span><span style="display:flex;flex-direction:column;gap:4px"><button class="sm pri" data-gcola="${s.id}" title="Cole o link do Google Maps ou as coordenadas">🔗 Colar do Google</button><a class="sm" href="${linkGoogle(s)}" target="_blank" rel="noopener" style="font-size:12px">abrir no Google Maps</a><button class="sm" data-pin="${s.id}">📍 marcar</button></span></li>`}).join('')}</ul></div>`;
  const sem=plan().stops.filter(s=>!routeOf(s.id));
  const nc=new Set(plan().naoCoube||[]);
  if(sem.length&&nR)h+=`<div class="card" data-drop="" style="--c:#b91c1c"><h3>${sem.some(s=>nc.has(s.id))?'Não couberam (horário ou capacidade)':'Sem rota'} (${sem.length})</h3>
@@ -1053,7 +1053,7 @@ function renderMap(){
   }
  }
  renderMap.bounds=bounds;
- if(!renderMap.fitted&&bounds.length>1){map.invalidateSize(false);const el=map.getContainer();if(el.clientHeight>60&&el.clientWidth>60){map.fitBounds(bounds,{padding:[30,30],maxZoom:14});renderMap.fitted=true}}
+ if(!renderMap.fitted&&bounds.length>1){map.invalidateSize(false);if(enquadrar(bounds))renderMap.fitted=true}
 }
 /* ---------- análise: rodízio + pedágio ---------- */
 const rotaCache={};let anal={},analVer=0;
@@ -1524,6 +1524,9 @@ function printPlan(){
 document.addEventListener('click',async e=>{
  const b=e.target.closest('button,[data-t],[data-foco]');if(!b)return;const D=b.dataset;
  if(D.foco){focarParada(D.foco);return}
+ if(D.gcola){const st=plan().stops.find(x=>x.id===D.gcola);if(!st)return;const t=prompt('Abra o endereço no Google Maps, copie o link da barra de endereço (ou clique com o botão direito no local e copie as coordenadas) e cole aqui:\n\n'+(st.cliente||'')+' — '+(st.endereco||''));if(!t)return;const c=coordsDoTexto(t.trim());
+  if(!c){notify('Não encontrei coordenadas nesse texto. Cole o link completo do Google Maps (com @-23...,-46...) ou algo como -23.5415, -46.6351','bad');return}
+  st.lat=c.lat;st.lng=c.lng;st.geoSrc='google';st.geoPrec='número';st.geoV3=1;delete st.geoNota;state.geo[normAddr(st.endereco)]={lat:c.lat,lng:c.lng,src:'google',prec:'número',v3:1};invalidate();save();renderMap.fitted=false;await recalc();notify('📍 '+(st.cliente||'Entrega')+' posicionada pelo Google Maps');return}
  if(b.id==='netSair'){sairRede();return}
  if(b.id==='netTentar'){liberouPorOcio=false;travaDoDia();return}
  if(b.id==='netPedir'){pedirEdicao();return}
@@ -1628,7 +1631,10 @@ $('#pdate').value=plan().data;
 const UI_KEY='berlaroute_ui';
 function uiGet(){try{return JSON.parse(localStorage.getItem(UI_KEY))||{}}catch(e){return{}}}
 function uiSet(o){try{localStorage.setItem(UI_KEY,JSON.stringify(Object.assign(uiGet(),o)))}catch(e){}}
-function mapaAjusta(){if(map)setTimeout(()=>{map.invalidateSize();if(!renderMap.fitted&&(renderMap.bounds||[]).length>1){const el=map.getContainer();if(el.clientHeight>60){map.fitBounds(renderMap.bounds,{padding:[30,30],maxZoom:14});renderMap.fitted=true}}},60)}
+function enquadrar(bounds){const el=map.getContainer(),h=el.clientHeight,w=el.clientWidth;if(h<40||w<60)return false;
+ const p=Math.max(4,Math.min(30,Math.floor(Math.min(h,w)/6)));map.fitBounds(bounds,{padding:[p,p],maxZoom:14});
+ if(map.getZoom()<8){const b=L.latLngBounds(bounds);map.setView(b.getCenter(),8)}return true}
+function mapaAjusta(){if(map)setTimeout(()=>{map.invalidateSize();if((renderMap.bounds||[]).length>1&&(!renderMap.fitted||map.getZoom()<8)){if(enquadrar(renderMap.bounds))renderMap.fitted=true}},60)}
 function painel(abrir){document.body.classList.toggle('semPainel',!abrir);$('#bPainel').classList.toggle('on',abrir);uiSet({painel:abrir});mapaAjusta()}
 (function initLayout(){
  const u=uiGet();painel(u.painel===true);
