@@ -538,7 +538,9 @@ async function travaDoDia(forcar,silencioso){
  try{const r=await sbRpc('pegar_trava',{p_data:d,p_nome:quemSou(),p_forcar:!!forcar});
   if(r&&r.ok){travaDia=d;pedidoEnviado=false;liberouPorOcio=false;modoLeitura(false);autoLocalizar.k=null;setTimeout(()=>{try{autoLocalizar()}catch(e){}},600);if(silencioso)notify('✏️ Você voltou a editar este dia');
    travaTimer=setInterval(async()=>{
+    if(geocodeAll.busy)ultimaAtividade=Date.now();
     if(Date.now()-ultimaAtividade>OCIOSO_MS){liberouPorOcio=true;await liberarEdicao('Você ficou alguns minutos sem mexer, então a edição foi liberada para os outros. É só clicar em qualquer lugar para voltar a editar.');return}
+    if(plan().stops.some(x=>x.lat==null))atualizarGeoServidor();
     try{const x=await sbRpc('pegar_trava',{p_data:d,p_nome:quemSou(),p_forcar:false});
      if(!x.ok){travaDia=null;clearInterval(travaTimer);fecharPedido();modoLeitura(true,`${x.nome} assumiu a edição deste dia. Você está só vendo.`,perfil.papel==='admin',true);iniciarLeitura();return}
      if(x.pedido_por&&x.pedido_por!==pedidoVisto){pedidoVisto=x.pedido_por;
@@ -547,12 +549,13 @@ async function travaDoDia(forcar,silencioso){
   else{if(silencioso){liberouPorOcio=false}modoLeitura(true,`Em edição por ${r.nome} — você está só vendo. A tela se atualiza sozinha e libera quando ${r.nome} sair.`,perfil.papel==='admin',true);iniciarLeitura()}
  }catch(e){modoLeitura(true,'Sem conexão com o servidor ('+e.message+'). Nada será salvo até reconectar.');iniciarLeitura()}
 }
+async function atualizarGeoServidor(){try{const r=((await sb('/rest/v1/app_dados?select=valor&chave=eq.geo'))||[])[0];if(!r||!r.valor)return;let n=0;for(const[k,v]of Object.entries(r.valor))if(!state.geo[k]||state.geo[k].lat==null){state.geo[k]=v;n++}if(n){ultimoPush.geo=JSON.stringify(state.geo);if(aplicarCacheGeo())await recalc()}}catch(e){}}
 async function pedirEdicao(){const d=plan().data;try{const r=await sbRpc('pedir_trava',{p_data:d,p_nome:quemSou()});
  if(r&&r.ok){pedidoEnviado=true;notify('Pedido enviado — quem está editando tem 1 minuto para liberar');modoLeitura(true,$('#netBanner span')?$('#netBanner span').textContent.replace(/^🔒\s*/,''):'',perfil.papel==='admin',true);iniciarLeitura(10000)}
  else await travaDoDia()}catch(e){notify('Não consegui enviar o pedido: '+e.message,'bad')}}
 function iniciarLeitura(ms){clearInterval(leituraTimer);leituraTimer=setInterval(atualizarLeitura,ms||15000)}
 async function atualizarLeitura(){if(podeEditar||!perfil)return;const d=plan().data;
- try{const r=await buscarPlanoServidor(d);const m=planoMeta[d];
+ try{if(plan().stops.some(x=>x.lat==null))await atualizarGeoServidor();const r=await buscarPlanoServidor(d);const m=planoMeta[d];
   if(r&&(!m||m.em!==r.atualizado_em)){state.plans[d]=r.plano;planoMeta[d]={em:r.atualizado_em,por:r.atualizado_por};ultimoPush['p:'+d]=JSON.stringify(r.plano);state.plan=JSON.parse(JSON.stringify(r.plano));state.plans[d]=state.plan;indexarTokens();aplicarVeiculosDoDia(state.plan);invalidate();await recalc();updDateTag()}
   if(perfil.papel!=='consulta'&&!liberouPorOcio){const x=await sbRpc('pegar_trava',{p_data:d,p_nome:quemSou(),p_forcar:false});if(x&&x.ok){await travaDoDia();notify('✏️ O dia foi liberado — agora você pode editar')}}
  }catch(e){}}
@@ -710,12 +713,13 @@ function coordsNoEndereco(t){const m=String(t||'').match(/(-?\d{1,2}\.\d{3,})\s*
 function aplicarCoordsEndereco(){let n=0;for(const P of [state.plan,...Object.values(state.plans||{})]){if(!P)continue;for(const s of (P.stops||[])){if(s.geoSrc==='manual'||s.geoSrc==='coord')continue;const c=coordsNoEndereco(s.endereco);if(!c)continue;s.lat=c.lat;s.lng=c.lng;s.geoSrc='coord';s.geoPrec='número';s.geoV3=1;delete s.geoNota;n++}}if(n){save();invalidate()}return n}
 function linkGoogle(s){return 'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(String(s.endereco||'').replace(/,\s*(\d{5})-?(\d{3})\s*$/,', $1-$2'))}
 /* Google Geocoding (opcional, com chave da API em Configuração) */
+const chaveGoogle=()=>{const k=String(cfg().googleKey||'').trim();return /^AIza[0-9A-Za-z_\-]{30,}$/.test(k)?k:''};
 let gmapsP=null;
-function carregarGoogle(){const k=(cfg().googleKey||'').trim();if(!k)return Promise.resolve(null);if(window.google&&google.maps&&google.maps.Geocoder)return Promise.resolve(google.maps);
- if(!gmapsP)gmapsP=new Promise(ok=>{window.__gmOk=()=>ok(window.google&&google.maps);const sc=document.createElement('script');sc.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(k)+'&callback=__gmOk&language=pt-BR&region=BR';sc.async=true;sc.onerror=()=>{gmapsP=null;ok(null)};document.head.appendChild(sc);setTimeout(()=>ok(window.google&&google.maps||null),12000)});
+function carregarGoogle(){const k=chaveGoogle();if(!k)return Promise.resolve(null);if(window.google&&google.maps&&google.maps.Geocoder)return Promise.resolve(google.maps);
+ if(!gmapsP)gmapsP=new Promise(ok=>{window.__gmOk=()=>ok(window.google&&google.maps);const sc=document.createElement('script');sc.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(k)+'&callback=__gmOk&language=pt-BR&region=BR';sc.async=true;sc.onerror=()=>{gmapsP=null;ok(null)};document.head.appendChild(sc);setTimeout(()=>ok(window.google&&google.maps||null),8000)});
  return gmapsP}
 async function geocodeGoogle(endereco){const gm=await carregarGoogle();if(!gm||!gm.Geocoder)return null;
- try{const r=await new gm.Geocoder().geocode({address:String(endereco)+', Brasil',region:'BR'});const x=r&&r.results&&r.results[0];if(!x)return null;
+ try{const r=await Promise.race([new gm.Geocoder().geocode({address:String(endereco)+', Brasil',region:'BR'}),new Promise((_,no)=>setTimeout(()=>no(new Error('timeout')),8000))]);const x=r&&r.results&&r.results[0];if(!x)return null;
   const lt=x.geometry.location_type,prec=lt==='ROOFTOP'||lt==='RANGE_INTERPOLATED'?'número':lt==='GEOMETRIC_CENTER'?'rua':'bairro';
   if(x.types&&x.types.some(t=>/^(locality|administrative_area_level_\d|country|postal_code)$/.test(t)))return null;
   return{lat:x.geometry.location.lat(),lng:x.geometry.location.lng(),src:'google',prec,v3:1,label:x.formatted_address}}catch(e){return null}}
@@ -757,6 +761,9 @@ async function geocodeAddr(q,endereco){
  // 3) rua do CEP + número + cidade (mais limpo, sem complemento)
  if(viaCep&&viaCep.street){const q2=[viaCep.street,ctx.num,viaCep.neighborhood,viaCep.city,viaCep.state,'Brasil'].filter(Boolean).join(', ');
   r=await tentarPhoton(q2,ctx,d,near);if(r.g)return r.g;fraco=fraco||r.fraco}
+ // 3b) coordenada do CEP (AwesomeAPI) — no Brasil o CEP costuma ser um trecho de rua: fica a poucos metros do número
+ if(ctx&&ctx.cep){try{const a=await (await fetchT('https://cep.awesomeapi.com.br/json/'+ctx.cep,10000)).json();const la=+a.lat,lo=+a.lng;
+  if(la&&lo&&near({lat:la,lng:lo})&&!(Math.abs(la+23.5475)<0.002&&Math.abs(lo+46.6361)<0.002)){if(fraco&&fraco.prec!=='bairro'&&hav(fraco,{lat:la,lng:lo})<0.6)return fraco;return{lat:la,lng:lo,src:'cep',prec:'CEP',v3:1,label:[a.address,a.district,a.city].filter(Boolean).join(', ')}}}catch(e){}}
  // 4) Nominatim
  await sleep(1100);r=await tentarNomin(q,ctx,near);if(r.g)return r.g;fraco=fraco||r.fraco;
  if(viaCep&&viaCep.street){await sleep(1100);r=await tentarNomin([viaCep.street+(ctx.num?' '+ctx.num:''),viaCep.city,viaCep.state,'Brasil'].join(', '),ctx,near);if(r.g)return r.g;fraco=fraco||r.fraco}
@@ -769,7 +776,7 @@ async function geocodeAddr(q,endereco){
 function geoSuspeito(s){return s.lat!=null&&(s.geoSrc==='photon'||s.geoSrc==='nominatim'||s.geoSrc==='cep')&&!s.geoV3}
 async function geocodeAll(force){
  if(geocodeAll.busy)return;geocodeAll.busy=true;try{
- const list=plan().stops.filter(s=>s.geoSrc!=='manual'&&s.geoSrc!=='coord'&&(force||s.lat==null||geoSuspeito(s)||fixoDe(s.endereco)||((cfg().googleKey||'').trim()&&s.geoSrc!=='google')));
+ const list=plan().stops.filter(s=>s.geoSrc!=='manual'&&s.geoSrc!=='coord'&&(force||s.lat==null||geoSuspeito(s)||fixoDe(s.endereco)||(chaveGoogle()&&s.geoSrc!=='google')));
  let ok=0,fail=0,n=0,conf=0;
  for(const s of list){
   n++;status(`Localizando ${n}/${list.length}: ${s.cliente||s.endereco}`);
@@ -777,7 +784,7 @@ async function geocodeAll(force){
   let g=!force&&state.geo[key];if(g&&(g.src==='photon'||g.src==='nominatim'||g.src==='cep')&&!g.v3)g=null;
   const fx=fixoDe(s.endereco);if(fx)g={lat:fx[0],lng:fx[1],src:'google',prec:'número',v3:1};
   const ce=coordsNoEndereco(s.endereco);if(ce)g={lat:ce.lat,lng:ce.lng,src:'coord',prec:'número',v3:1};
-  if(!g&&(cfg().googleKey||'').trim()){g=await geocodeGoogle(s.endereco);if(g)state.geo[key]=g}
+  if(!g&&chaveGoogle()){g=await geocodeGoogle(s.endereco);if(g)state.geo[key]=g}
   if(!g){g=await geocodeAddr(geoQuery(s),s.endereco);if(g){state.geo[key]=g}}
   if(g){s.lat=g.lat;s.lng=g.lng;s.geoSrc=g.src;s.geoPrec=g.prec;s.geoV3=1;delete s.geoNota;ok++;
    if(g.prec==='bairro'){s.geoPrec='conferir';s.geoNota='só achei o bairro deste endereço — arraste o pino para o local certo';conf++}
@@ -795,19 +802,20 @@ async function geocodeAll(force){
 /* ---------- cálculo e renderização ---------- */
 let sims={};
 async function recalc(){
- cleanRoutes();
+ cleanRoutes();aplicarCacheGeo();
  await ensureMatrix();
  const S=stopsById();sims={};
  for(const v of state.vehicles){const ids=(plan().routes[v.id]||[]).filter(x=>matIdx[x]!=null);if(ids.length)sims[v.id]=simulate(v,ids,M,matIdx,S,cfg())}
  save();renderAll();agendarAnalise();autoLocalizar();agendarRepublicar();
 }
-function autoLocalizar(){if(geocodeAll.busy||(NET&&!podeEditar))return;const f=plan().stops.filter(s=>s.lat==null&&s.geoSrc!=='falhou'&&s.geoSrc!=='manual');if(!f.length)return;
+function aplicarCacheGeo(){let n=0;for(const s of plan().stops){if(s.lat!=null||s.geoSrc==='manual')continue;const g=state.geo&&state.geo[normAddr(s.endereco)];if(g&&g.lat!=null&&g.lng!=null&&g.src!=='falhou'){s.lat=g.lat;s.lng=g.lng;s.geoSrc=g.src;s.geoPrec=g.prec;s.geoV3=1;delete s.geoNota;n++}}if(n)invalidate();return n}
+function autoLocalizar(){if(geocodeAll.busy||(NET&&(!perfil||perfil.papel==='consulta')))return;const f=plan().stops.filter(s=>s.lat==null&&s.geoSrc!=='falhou'&&s.geoSrc!=='manual');if(!f.length)return;
  const k=plan().data+'|'+f.map(s=>s.id+s.endereco).join(',');if(autoLocalizar.k===k)return;autoLocalizar.k=k;setTimeout(()=>geocodeAll(false),400)}
 function assinaturaRota(vid){const sim=sims[vid];if(!sim)return'';const S=stopsById();return sim.stops.map(st=>{const x=S[st.id]||{};return [st.id,fmtHM(st.inicio),x.endereco,x.lat,x.lng,x.volume,x.obs].join('~')}).join('|')}
 let repubTimer=null;function agendarRepublicar(){clearTimeout(repubTimer);repubTimer=setTimeout(async()=>{if(!celOk()||(NET&&!podeEditar))return;const P=plan();const pub=P.celPub||{};P.celSig=P.celSig||{};let n=0;
  for(const vid of Object.keys(pub)){if(!sims[vid])continue;const sg=assinaturaRota(vid);if(P.celSig[vid]===sg)continue;try{await publicarRota(vid);P.celSig[vid]=sg;n++}catch(e){}}
  if(n){save();notify(`📲 Rota atualizada no celular de ${n} motorista(s)`)}},3000)}
-function renderAll(){updDateTag();renderStops();renderVehicles();renderConfig();if(NET)carregarUsuarios();renderRoutes();renderMap();updateButtons();avisoSuspeitos()}
+function renderAll(){if(/@/.test(buscaParadas||''))buscaParadas='';updDateTag();renderStops();renderVehicles();renderConfig();if(NET)carregarUsuarios();renderRoutes();renderMap();updateButtons();avisoSuspeitos();document.querySelectorAll('input:not([type=password]):not([autocomplete])').forEach(i=>i.setAttribute('autocomplete','off'))}
 function avisoSuspeitos(){const n=plan().stops.filter(geoSuspeito).length;const k=plan().data+'|'+n;if(!n||avisoSuspeitos.k===k)return;avisoSuspeitos.k=k;notify(`⚠ ${n} entrega(s) deste dia foram localizadas pela versão antiga e podem estar no lugar errado (centro da cidade ou rua de mesmo nome em outra cidade). Clique em ② Localizar endereços para corrigir.`,'bad')}
 function updateButtons(){
  const S=plan().stops,hasR=Object.keys(sims).length>0;
@@ -834,7 +842,7 @@ function renderStops(){
  const nLoc=S.filter(s=>s.lat!=null).length;
  if(S.length){const nxt=nLoc===0?'Próximo passo: ② Localizar endereços':(nLoc<S.length?`${S.length-nLoc} endereço(s) não localizados — use 📍 para marcar no mapa, ou siga para ③ Otimizar rotas`:(!Object.keys(sims).length?'Próximo passo: ③ Otimizar rotas':(semRota?`${semRota} parada(s) sem rota — rode ③ Otimizar de novo ou atribua manualmente`:'Rotas prontas: ④ Salvar roteiro pronto, Imprimir ou copiar p/ WhatsApp')));h+=`<div class="next">${esc(nxt)}</div>`}
  if(S.length)h+=`<div class="row small"><span class="muted">${S.filter(s=>s.lat!=null).length}/${S.length} localizados · ${semRota} sem rota</span><span class="spacer"></span><button class="sm" id="bClear">Limpar paradas</button></div>`;
- if(S.length)h+=`<div style="position:sticky;top:42px;z-index:4;background:var(--panel);padding:6px 0"><input type="search" id="buscaParadas" placeholder="🔍 Buscar entrega: cliente, OS, endereço, cidade ou motorista" value="${esc(buscaParadas)}" style="width:100%;padding:8px 10px;font-size:14px"><div class="small muted" id="buscaInfo" style="margin-top:3px"></div></div>`;
+ if(S.length)h+=`<div style="position:sticky;top:42px;z-index:4;background:var(--panel);padding:6px 0"><input type="search" id="buscaParadas" autocomplete="off" name="busca-entrega-br" placeholder="🔍 Buscar entrega: cliente, OS, endereço, cidade ou motorista" value="${esc(buscaParadas)}" style="width:100%;padding:8px 10px;font-size:14px"><div class="small muted" id="buscaInfo" style="margin-top:3px"></div></div>`;
  h+='<table id="tbParadas"><thead><tr><th></th><th>Cliente / endereço</th><th>Janela</th><th>Rota</th></tr></thead><tbody>';
  S.forEach(s=>{
   const r=routeOf(s.id);
@@ -902,7 +910,7 @@ function renderConfig(){
   <label>Tolerância na janela (min)</label><span><input type="number" data-cf="tolerancia" value="${c.tolerancia||0}" style="width:90px"> <span class="small muted">0 = janela respeitada à risca</span></span>
   <label>Contar volta à sede</label><span><input type="checkbox" data-cf="retorno" ${c.retorno?'checked':''}> <span class="small muted">desligado = otimiza o km pago (até a última entrega)</span></span>
   <label>Cidade padrão</label><input type="text" data-cf="cidadePadrao" value="${esc(c.cidadePadrao)}">
-  <label>Chave Google Maps (opcional)</label><span><input type="text" data-cf="googleKey" value="${esc(c.googleKey||'')}" placeholder="AIza…" style="width:260px"><br><span class="small muted">Com a chave, ② Localizar endereços usa o Google (pino exato no número). Sem ela, use “Colar link do Google” no pino.</span></span>
+  <label>Chave Google Maps (opcional)</label><span><input type="text" data-cf="googleKey" autocomplete="off" name="chave-google-br" value="${esc(chaveGoogle())}" placeholder="AIza…" style="width:260px"><br><span class="small muted">Com a chave, ② Localizar endereços usa o Google (pino exato no número). Sem ela, use “Colar link do Google” no pino.</span></span>
  </div>
  ${NET?`<h3>Baixa pelo celular (motoristas)</h3><p class="small muted">Na versão em rede o envio de rotas e a busca de baixas usam o seu login — não precisa de senha aqui.</p>`+(perfil&&perfil.papel==='admin'?`<h3>Usuários</h3><div id="usuariosLista" class="small">carregando…</div><p class="small muted">Para incluir alguém: Supabase › Authentication › Users › Add user › Create new user (e-mail, senha, marque Auto Confirm). A pessoa entra como <b>consulta</b>; mude aqui para <b>operador</b> (edita roteiros) ou <b>admin</b> (tudo).</p>`:''):`<h3>Servidor (versão em rede)</h3><p class="small muted">Envia motoristas, configuração, endereços conferidos e todos os roteiros salvos deste computador para o servidor da versão em rede. Use o seu login de administrador. A senha não fica guardada.</p><div class="row"><input type="email" id="srvEmail" placeholder="seu e-mail" style="width:200px"><input type="password" id="srvSenha" placeholder="senha" style="width:140px"><button class="sm pri" id="bEnviarSrv">Enviar meus dados para o servidor</button></div>`}
  <div class="soLocal"><h3>Baixa pelo celular (motoristas)</h3>
