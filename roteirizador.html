@@ -103,6 +103,15 @@ body.somenteLeitura :is(#pStops,#pVeh,#routes) :is(input,select,textarea,button)
 body.somenteLeitura a[href]{pointer-events:auto!important;opacity:1!important}
 body.naoAdmin #pCfg :is(input,select,textarea,button):not([data-pnome]):not([data-ppapel]):not(#netSair){pointer-events:none;opacity:.45}
 body.modoRede [data-dp],body.modoRede .soLocal{display:none!important}
+body.modoCel:not(.printing){height:auto!important;overflow:auto!important;display:block!important}
+body.modoCel #left,body.modoCel #mapwrap,body.modoCel #vsplit,body.modoCel #bPainel,body.modoCel #bImport,body.modoCel #bAdd,body.modoCel #bGeo,body.modoCel #bOpt,body.modoCel #bXls,body.modoCel #bPrint,body.modoCel #bPE,body.modoCel #netBanner,body.modoCel #status,body.modoCel #netSync{display:none!important}
+body.modoCel main{display:block!important}body.modoCel #right{display:block!important}
+body.modoCel #routes{display:block!important;overflow:visible!important;padding:8px}body.modoCel #routes>*{margin-bottom:10px}
+body.modoCel #routes .card:has(.chips),body.modoCel #routes [data-up],body.modoCel #routes [data-dn],body.modoCel #routes [data-un],body.modoCel #routes [data-unlock],body.modoCel #routes select.mv,body.modoCel #routes [data-ropt],body.modoCel #routes [data-r2],body.modoCel #routes [data-wa],body.modoCel #routes [data-desfaz],body.modoCel #routes [data-pin],body.modoCel #routes [data-gcola],body.modoCel .celEsconde{display:none!important}
+body.modoCel #routes :is(input,select,textarea,button){pointer-events:auto!important;opacity:1!important}
+body.modoCel header{gap:6px;padding:8px 10px}body.modoCel header .brand{font-size:18px}
+#celBar{display:none}body.modoCel #celBar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 10px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:600}
+.st-pend{color:var(--muted);font-weight:600}
 </style>
 </head>
 <body>
@@ -121,7 +130,9 @@ body.modoRede [data-dp],body.modoRede .soLocal{display:none!important}
  <span class="spacer"></span>
  <span id="status"></span>
  <span id="netInfo"></span>
+ <button id="bModo" class="sm" style="display:none" title="Alternar entre a versão completa e o modo acompanhamento (celular)">📱 Acompanhar</button>
 </header>
+<div id="celBar"><b class="small">📱 Acompanhamento</b><span id="celResumo" class="small muted"></span><span class="spacer"></span><button class="sm" id="bCelAtualizar">↻ Atualizar</button></div>
 <main>
  <div id="left">
   <div class="tabs">
@@ -507,7 +518,7 @@ async function carregarDoServidor(){
  const pl=(await sb('/rest/v1/planos?select=data,plano,atualizado_em,atualizado_por&data=gte.'+isoDias(-60)))||[];
  state.plans={};pl.forEach(r=>{state.plans[r.data]=r.plano;planoMeta[r.data]={em:r.atualizado_em,por:r.atualizado_por};ultimoPush['p:'+r.data]=JSON.stringify(r.plano)});
  indexarTokens();
- const d=(state.plan&&state.plan.data)||isoDias(0);state.plan={data:'0000-00-00',stops:[],routes:{}};
+ aplicarModo();const d=document.body.classList.contains('modoCel')?todayISO():((state.plan&&state.plan.data)||isoDias(0));state.plan={data:'0000-00-00',stops:[],routes:{}};
  carregandoServidor=false;podeEditar=false;
  document.body.classList.toggle('naoAdmin',perfil.papel!=='admin');
  $('#netInfo').innerHTML=`<span title="${esc(perfil.email||'')}">👤 ${esc(quemSou())} · ${esc(perfil.papel)}</span> <span id="netSync" class="small"></span> <button class="sm" id="netSair">Sair</button>`;
@@ -557,10 +568,16 @@ function iniciarLeitura(ms){clearInterval(leituraTimer);leituraTimer=setInterval
 async function atualizarLeitura(){if(podeEditar||!perfil)return;const d=plan().data;
  try{if(plan().stops.some(x=>x.lat==null))await atualizarGeoServidor();const r=await buscarPlanoServidor(d);const m=planoMeta[d];
   if(r&&(!m||m.em!==r.atualizado_em)){state.plans[d]=r.plano;planoMeta[d]={em:r.atualizado_em,por:r.atualizado_por};ultimoPush['p:'+d]=JSON.stringify(r.plano);state.plan=JSON.parse(JSON.stringify(r.plano));state.plans[d]=state.plan;indexarTokens();aplicarVeiculosDoDia(state.plan);invalidate();await recalc();updDateTag()}
-  if(perfil.papel!=='consulta'&&!liberouPorOcio){const x=await sbRpc('pegar_trava',{p_data:d,p_nome:quemSou(),p_forcar:false});if(x&&x.ok){await travaDoDia();notify('✏️ O dia foi liberado — agora você pode editar')}}
+  if(document.body.classList.contains('modoCel'))try{await baixasCel()}catch(e){}
+  if(perfil.papel!=='consulta'&&!liberouPorOcio&&!document.body.classList.contains('modoCel')){const x=await sbRpc('pegar_trava',{p_data:d,p_nome:quemSou(),p_forcar:false});if(x&&x.ok){await travaDoDia();notify('✏️ O dia foi liberado — agora você pode editar')}}
  }catch(e){}}
+async function baixasCel(){state.celDesde=null;return buscarBaixas(false)}
+function ehCel(){let m=null;try{m=localStorage.getItem('berlaroute_modo')}catch(e){}if(m==='cel')return true;if(m==='pc')return false;return Math.min(window.innerWidth,screen.width||9999)<=760}
+function aplicarModo(){const cel=NET&&ehCel();document.body.classList.toggle('modoCel',cel);const b=$('#bModo');if(b){b.style.display=NET&&perfil?'':'none';b.textContent=cel?'🖥 Versão completa':'📱 Acompanhar'}}
+function resumoCel(){const e=$('#celResumo');if(!e)return;const B=plan().baixa||{},S=plan().stops||[];const ok=S.filter(s=>B[s.id]&&B[s.id].est==='completed').length,fx=S.filter(s=>B[s.id]&&B[s.id].est==='failed').length;e.textContent=`${fmtDate(plan().data)} · ✅ ${ok} · ❌ ${fx} · ⏳ ${S.length-ok-fx} de ${S.length}`}
 async function aposTrocarDia(){
- if(!NET||!perfil)return;const d=plan().data;
+ if(!NET||!perfil)return;
+ if(document.body.classList.contains('modoCel')){await soltarTravaAtual();podeEditar=false;try{const r=await buscarPlanoServidor(plan().data);if(r){state.plans[plan().data]=r.plano;planoMeta[plan().data]={em:r.atualizado_em,por:r.atualizado_por};state.plan=JSON.parse(JSON.stringify(r.plano));indexarTokens();aplicarVeiculosDoDia(state.plan);invalidate();await recalc()}}catch(e){}try{await baixasCel()}catch(e){}iniciarLeitura(30000);updDateTag();resumoCel();return}const d=plan().data;
  try{const r=await buscarPlanoServidor(d);if(r){const m=planoMeta[d];if(!m||m.em!==r.atualizado_em||!state.plans[d]){state.plans[d]=r.plano;planoMeta[d]={em:r.atualizado_em,por:r.atualizado_por};ultimoPush['p:'+d]=JSON.stringify(r.plano);state.plan=JSON.parse(JSON.stringify(r.plano));state.plans[d]=state.plan;indexarTokens();aplicarVeiculosDoDia(state.plan);invalidate();await recalc()}}}catch(e){}
  await travaDoDia();updDateTag();
 }
@@ -809,13 +826,13 @@ async function recalc(){
  save();renderAll();agendarAnalise();autoLocalizar();agendarRepublicar();
 }
 function aplicarCacheGeo(){let n=0;for(const s of plan().stops){if(s.lat!=null||s.geoSrc==='manual')continue;const g=state.geo&&state.geo[normAddr(s.endereco)];if(g&&g.lat!=null&&g.lng!=null&&g.src!=='falhou'){s.lat=g.lat;s.lng=g.lng;s.geoSrc=g.src;s.geoPrec=g.prec;s.geoV3=1;delete s.geoNota;n++}}if(n)invalidate();return n}
-function autoLocalizar(){if(geocodeAll.busy||(NET&&(!perfil||perfil.papel==='consulta')))return;const f=plan().stops.filter(s=>s.lat==null&&s.geoSrc!=='falhou'&&s.geoSrc!=='manual');if(!f.length)return;
+function autoLocalizar(){if(geocodeAll.busy||document.body.classList.contains('modoCel')||(NET&&(!perfil||perfil.papel==='consulta')))return;const f=plan().stops.filter(s=>s.lat==null&&s.geoSrc!=='falhou'&&s.geoSrc!=='manual');if(!f.length)return;
  const k=plan().data+'|'+f.map(s=>s.id+s.endereco).join(',');if(autoLocalizar.k===k)return;autoLocalizar.k=k;setTimeout(()=>geocodeAll(false),400)}
 function assinaturaRota(vid){const sim=sims[vid];if(!sim)return'';const S=stopsById();return sim.stops.map(st=>{const x=S[st.id]||{};return [st.id,fmtHM(st.inicio),x.endereco,x.lat,x.lng,x.volume,x.obs].join('~')}).join('|')}
 let repubTimer=null;function agendarRepublicar(){clearTimeout(repubTimer);repubTimer=setTimeout(async()=>{if(!celOk()||(NET&&!podeEditar))return;const P=plan();const pub=P.celPub||{};P.celSig=P.celSig||{};let n=0;
  for(const vid of Object.keys(pub)){if(!sims[vid])continue;const sg=assinaturaRota(vid);if(P.celSig[vid]===sg)continue;try{await publicarRota(vid);P.celSig[vid]=sg;n++}catch(e){}}
  if(n){save();notify(`📲 Rota atualizada no celular de ${n} motorista(s)`)}},3000)}
-function renderAll(){if(/@/.test(buscaParadas||''))buscaParadas='';updDateTag();renderStops();renderVehicles();renderConfig();if(NET)carregarUsuarios();renderRoutes();renderMap();updateButtons();avisoSuspeitos();document.querySelectorAll('input:not([type=password]):not([autocomplete])').forEach(i=>i.setAttribute('autocomplete','off'))}
+function renderAll(){if(/@/.test(buscaParadas||''))buscaParadas='';updDateTag();try{resumoCel()}catch(e){}renderStops();renderVehicles();renderConfig();if(NET)carregarUsuarios();renderRoutes();renderMap();updateButtons();avisoSuspeitos();document.querySelectorAll('input:not([type=password]):not([autocomplete])').forEach(i=>i.setAttribute('autocomplete','off'))}
 function avisoSuspeitos(){const n=plan().stops.filter(geoSuspeito).length;const k=plan().data+'|'+n;if(!n||avisoSuspeitos.k===k)return;avisoSuspeitos.k=k;notify(`⚠ ${n} entrega(s) deste dia foram localizadas pela versão antiga e podem estar no lugar errado (centro da cidade ou rua de mesmo nome em outra cidade). Clique em ② Localizar endereços para corrigir.`,'bad')}
 function updateButtons(){
  const S=plan().stops,hasR=Object.keys(sims).length>0;
@@ -964,11 +981,11 @@ function renderRoutes(){
   if(v.parentId&&sims[v.parentId]&&sim.saida<sims[v.parentId].voltaSede)alerts.push(`o Roteiro anterior só volta à sede às ${fmtHM(sims[v.parentId].voltaSede)} — este roteiro sai às ${fmtHM(sim.saida)}`);
   if(sim.capExc)alerts.push(`volume ${sim.vol} acima da capacidade (${v.cap})`);
   cards[v.id]=`<div class="card" data-drop="${v.id}" style="--c:${c}"><h3><span class="dot" style="background:${c}"></span>${esc(rotLabel(v))} <span class="muted small" style="font-weight:400">${esc(v.nome)} · ${esc(v.nivel||'')}${v.valorSaida!=null&&(cfg().niveis[v.nivel]||{}).tipo==='piso'?' · saída R$ '+v.valorSaida:''}</span></h3>${(v.clientes||[]).length||(v.zonas||[]).length||v.sobra?`<div class="small muted">Preferência: ${[(v.clientes||[]).length?(v.exclusivo?'somente ':'')+v.clientes.join(', '):'',(v.zonas||[]).length?'zona '+v.zonas.join('/'):'',v.sobra?'o que sobrar':''].filter(Boolean).join(' · ')}</div>`:''}
-  <div class="kpis"><span class="kpi">Saída <b>${fmtHM(sim.saida)}</b></span><span class="kpi">Última <b>${fmtHM(sim.ultima)}</b></span><span class="kpi"><b>${sim.ids.length}</b> entregas</span><span class="kpi" ${v.cap&&sim.vol>v.cap?'style="background:rgba(185,28,28,.15);color:var(--bad)"':''}>Capacidade <b>${sim.vol}${v.cap?'/'+v.cap:''}</b> caixas${v.cap?'':' <span class="muted">(defina a capacidade em Veículos)</span>'}</span><span class="kpi">Km pago <b>${fmtKm(sim.kmPago)}</b></span><span class="kpi">c/ volta <b>${fmtKm(sim.kmTotal)}</b></span><span class="kpi">Custo est. <b>${v.parentId?'somado ao Roteiro 1':fmtR(custo)+(temGrupo?' (todos os roteiros)':'')}</b></span>${sim.lateCount?`<span class="kpi" style="background:rgba(185,28,28,.15);color:var(--bad)"><b>${sim.lateCount} fora do horário</b></span>`:`<span class="kpi" style="color:var(--ok)"><b>✓ todas no horário</b></span>`}</div>
+  <div class="kpis"><span class="kpi">Saída <b>${fmtHM(sim.saida)}</b></span><span class="kpi">Última <b>${fmtHM(sim.ultima)}</b></span><span class="kpi"><b>${sim.ids.length}</b> entregas</span>${(()=>{const B=plan().baixa||{};const ok=sim.ids.filter(id=>B[id]&&B[id].est==='completed').length,fx=sim.ids.filter(id=>B[id]&&B[id].est==='failed').length;return (ok+fx)?`<span class="kpi" style="color:var(--ok)">✅ <b>${ok}</b>/${sim.ids.length}${fx?` · ❌ ${fx}`:''}</span>`:''})()}<span class="kpi" ${v.cap&&sim.vol>v.cap?'style="background:rgba(185,28,28,.15);color:var(--bad)"':''}>Capacidade <b>${sim.vol}${v.cap?'/'+v.cap:''}</b> caixas${v.cap?'':' <span class="muted">(defina a capacidade em Veículos)</span>'}</span><span class="kpi">Km pago <b>${fmtKm(sim.kmPago)}</b></span><span class="kpi">c/ volta <b>${fmtKm(sim.kmTotal)}</b></span><span class="kpi">Custo est. <b>${v.parentId?'somado ao Roteiro 1':fmtR(custo)+(temGrupo?' (todos os roteiros)':'')}</b></span>${sim.lateCount?`<span class="kpi" style="background:rgba(185,28,28,.15);color:var(--bad)"><b>${sim.lateCount} fora do horário</b></span>`:`<span class="kpi" style="color:var(--ok)"><b>✓ todas no horário</b></span>`}</div>
   ${alerts.map(a=>`<div class="alert">${esc(a)}</div>`).join('')}
   ${htmlAnalise(v)}
   <div class="row" style="margin:6px 0 0"><button class="sm" data-ropt="${v.id}">Otimizar ordem</button>${v.parentId?'':`<button class="sm" data-r2="${v.id}" title="Cria uma segunda saída do mesmo motorista, depois que ele voltar à sede">+ Roteiro 2</button>`}<button class="sm" data-wa="${v.id}">${celOk()?'Enviar rota + link de baixa':'Copiar p/ WhatsApp'}</button>${(plan().celPub||{})[v.id]?'<span class="kpi small" style="color:var(--ok)">📲 link enviado</span>':''}${mapsLinks(v.id).map((u,i,a)=>`<a class="small" href="${u}" target="_blank" rel="noopener">Google Maps${a.length>1?' '+(i+1):''}</a>`).join(' ')}</div>
-  <ul class="slist">${sim.stops.map((st,i)=>{const s=S[st.id];return`<li draggable="true" data-sid="${st.id}" data-vid="${v.id}" data-pos="${i}"><span class="seq">${i+1}</span><span><b>${fmtHM(st.inicio)}</b> ${esc(s.cliente||'')}${s.os?` <span class="muted small">Ped. ${esc(s.os)}</span>`:''}${s.tipo?` <span class="kpi small">${esc(s.tipo)}</span>`:''}${zonaDe(s)?` <span class="kpi small">${zonaDe(s)}</span>`:''}${s._fora?` <span class="kpi small" style="color:var(--warn)">não coube no motorista fixo</span>`:''}<br><span class="small muted">${esc(s.endereco)}</span>${s.idsJuntos?`<br><span class="small" style="color:var(--warn);font-weight:600">Entrega conjunta: pedidos ${esc(s.idsJuntos.join(', '))}</span>`:''}${htmlBaixaStop(st.id)}<br><span class="small ${st.late?'bad':'muted'}">janela ${fmtHM(s.jIni)}${jEnd(s,cfg())!=null?'–'+fmtHM(jEnd(s,cfg())):''}${st.late?` · atraso ${Math.round(st.late)} min`:''}${st.wait>5?` · espera ${Math.round(st.wait)} min`:''} · ${s.servico!=null?s.servico:cfg().servico} min p/ entregar${s.volume?` · ${s.volume} cx`:''} · ${fmtKm(st.kmAcum)}</span></span>
+  <ul class="slist">${sim.stops.map((st,i)=>{const s=S[st.id];return`<li draggable="true" data-sid="${st.id}" data-vid="${v.id}" data-pos="${i}"><span class="seq">${i+1}</span><span><b>${fmtHM(st.inicio)}</b> ${esc(s.cliente||'')}${s.os?` <span class="muted small">Ped. ${esc(s.os)}</span>`:''}${s.tipo?` <span class="kpi small">${esc(s.tipo)}</span>`:''}${zonaDe(s)?` <span class="kpi small">${zonaDe(s)}</span>`:''}${s._fora?` <span class="kpi small" style="color:var(--warn)">não coube no motorista fixo</span>`:''}<br><span class="small muted">${esc(s.endereco)}</span>${s.idsJuntos?`<br><span class="small" style="color:var(--warn);font-weight:600">Entrega conjunta: pedidos ${esc(s.idsJuntos.join(', '))}</span>`:''}${htmlBaixaStop(st.id)}${document.body.classList.contains('modoCel')?badgePend(st.id):''}<br><span class="small ${st.late?'bad':'muted'}">janela ${fmtHM(s.jIni)}${jEnd(s,cfg())!=null?'–'+fmtHM(jEnd(s,cfg())):''}${st.late?` · atraso ${Math.round(st.late)} min`:''}${st.wait>5?` · espera ${Math.round(st.wait)} min`:''} · ${s.servico!=null?s.servico:cfg().servico} min p/ entregar${s.volume?` · ${s.volume} cx`:''} · ${fmtKm(st.kmAcum)}</span></span>
   <span style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><span style="white-space:nowrap">${s.fixo?`<button class="sm ghost" data-unlock="${st.id}" title="Travada neste carro pelo ajuste manual — clique para liberar">🔒</button>`:''}<button class="sm ghost" data-up="${v.id}|${i}">▲</button><button class="sm ghost" data-dn="${v.id}|${i}">▼</button><button class="sm ghost" data-un="${st.id}" title="Tirar da rota">✕</button></span><select class="mv" data-asg="${st.id}">${moveOpts(v.id)}</select></span></li>`}).join('')}</ul></div>`;
  });
  for(const v of state.vehicles){if(v.parentId||!cards[v.id]&&!state.vehicles.some(x=>x.parentId===v.id&&cards[x.id]))continue;
@@ -1372,7 +1389,7 @@ async function buscarBaixas(manual){
    if(b.status==='chegada'){x.ci=hh}
    else{x.co=hh;x.est=b.status==='entregue'?'completed':'failed';if(b.obs)x.com=b.obs;x.fotos=(b.fotos||[]).map(f=>({tipo:f.tipo,url:fotoUrl(f.path)}));if(b.lat!=null)x.pos=[b.lat,b.lng]}
    x.cel=true;n++}
-  save();if(n){renderRoutes();if($('#mPE').classList.contains('on'))renderPE();notify(`📲 ${n} baixa(s) recebida(s) do celular dos motoristas`)}else if(manual)notify('Nenhuma baixa nova no momento');
+  save();if(n){renderRoutes();if($('#mPE').classList.contains('on'))renderPE();if(!document.body.classList.contains('modoCel'))notify(`📲 ${n} baixa(s) recebida(s) do celular dos motoristas`)}else if(manual)notify('Nenhuma baixa nova no momento');
  }catch(e){if(manual)notify('Não consegui buscar as baixas: '+(e.message||e),'bad')}
  finally{celBusy=false}
 }
@@ -1382,6 +1399,7 @@ function htmlBaixaStop(sid){const b=(plan().baixa||{})[sid];if(!b)return'';const
  if(b.est==='completed')return`<br><span class="small" style="color:var(--ok);font-weight:600">✅ Entregue ${esc(b.co)}${b.cel?' (celular)':''}</span> ${ft}${b.com?` <span class="small muted">· ${esc(b.com)}</span>`:''}${dz}`;
  if(b.est==='failed')return`<br><span class="small" style="color:var(--bad);font-weight:600">❌ Fracassada ${esc(b.co)}</span>${b.com?` <span class="small">· ${esc(b.com)}</span>`:''} ${ft}${dz}`;
  if(b.ci)return`<br><span class="small" style="color:var(--warn);font-weight:600">📍 No local desde ${esc(b.ci)}</span>${dz}`;return''}
+function badgePend(sid){const b=(plan().baixa||{})[sid];return (!b||(!b.est||b.est==='pending')&&!b.ci)?'<br><span class="small st-pend">⏳ Pendente</span>':''}
 function gerarPaginaMotorista(){const c=cfg();if(!c.celUrl||!c.celKey){notify('Preencha a URL e a chave anon do Supabase primeiro','bad');return}
  const html=MOTORISTA_TPL.replace('__SUPABASE_URL__',celBase()).replace('__SUPABASE_ANON__',c.celKey.trim());
  downloadBlob(new Blob([html],{type:'text/html'}),'index.html');notify('index.html gerado (Downloads) — suba no GitHub conforme o guia')}
@@ -1532,6 +1550,8 @@ function printPlan(){
 document.addEventListener('click',async e=>{
  const b=e.target.closest('button,[data-t],[data-foco]');if(!b)return;const D=b.dataset;
  if(D.foco){focarParada(D.foco);return}
+ if(b.id==='bModo'){const cel=!document.body.classList.contains('modoCel');try{localStorage.setItem('berlaroute_modo',cel?'cel':'pc')}catch(e){}location.reload();return}
+ if(b.id==='bCelAtualizar'){b.disabled=true;try{const r=await buscarPlanoServidor(plan().data);if(r){state.plan=JSON.parse(JSON.stringify(r.plano));state.plans[plan().data]=state.plan;planoMeta[plan().data]={em:r.atualizado_em,por:r.atualizado_por};indexarTokens();aplicarVeiculosDoDia(state.plan);invalidate();await recalc()}await baixasCel();notify('Atualizado')}catch(e){}b.disabled=false;resumoCel();return}
  if(D.gcola){const st=plan().stops.find(x=>x.id===D.gcola);if(!st)return;const t=prompt('Abra o endereço no Google Maps, copie o link da barra de endereço (ou clique com o botão direito no local e copie as coordenadas) e cole aqui:\n\n'+(st.cliente||'')+' — '+(st.endereco||''));if(!t)return;const c=coordsDoTexto(t.trim());
   if(!c){notify('Não encontrei coordenadas nesse texto. Cole o link completo do Google Maps (com @-23...,-46...) ou algo como -23.5415, -46.6351','bad');return}
   st.lat=c.lat;st.lng=c.lng;st.geoSrc='google';st.geoPrec='número';st.geoV3=1;delete st.geoNota;state.geo[normAddr(st.endereco)]={lat:c.lat,lng:c.lng,src:'google',prec:'número',v3:1};invalidate();save();renderMap.fitted=false;await recalc();notify('📍 '+(st.cliente||'Entrega')+' posicionada pelo Google Maps');return}
