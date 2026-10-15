@@ -70,7 +70,7 @@ button{font:inherit;font-weight:700;border:0;border-radius:10px;padding:14px;cur
 <script>
 "use strict";
 var CFG={url:'https://nuicnpxpuhlbmfrmdirf.supabase.co',key:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im51aWNucHhwdWhsYm1mcm1kaXJmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0NTA5MjEsImV4cCI6MjEwNzAyNjkyMX0.epWBD3u8JwjRWllQFJovBO5d4WX42xzXTKsnb9HnJwc'};
-var QS=new URLSearchParams(location.search);var TOKEN=QS.get('r')||'';var SOLO=QS.get('p')||'';var verTodas=!SOLO;
+var QS=new URLSearchParams(location.search);var TOKEN=QS.get('r')||'';var SOLO=QS.get('p')||'';var verTodas=!SOLO;var ACAO=QS.get('a')||'';
 var gpsW=null,gpsUlt=0,gpsPos=null,gpsErro='',wake=null,gpsOcup=false;
 var rota=null,estado={},fotos={},fila=[],enviando=false,aberto=null;
 var MOTIVOS=['Cliente ausente / local fechado','Endereço não encontrado','Recusado pelo cliente','Sem acesso / portaria não liberou','Atraso – cliente não aceitou','Outro (descreva)'];
@@ -87,7 +87,7 @@ function carregar(){
   if(!r){$('#m').innerHTML='<div class="msg">Rota não encontrada ou expirada. Fale com a logística.</div>';$('#t').textContent='BerlaRoute';return}
   rota=r;estado={};
   (r.baixas||[]).forEach(function(b){var e=estado[b.parada_id]=estado[b.parada_id]||{};if(b.status==='chegada')e.chegada=b.criado_em;else{e.status=b.status;e.quando=b.criado_em;e.obs=b.obs}});
-  render();ligarGps();if(rota.inicio&&!rota.fim)lerPos().then(function(){enviarPos(true)});
+  render();ligarGps();if(rota.inicio&&!rota.fim)lerPos().then(function(){enviarPos(true)});executarAcao();
  }).catch(function(e){$('#m').innerHTML='<div class="msg">Sem conexão para carregar a rota.<br><br><button class="b-ok" onclick="carregar()">Tentar de novo</button></div>'});
 }
 function render(){
@@ -129,6 +129,11 @@ function htmlGps(pend){
  var ok=gpsW!==null&&!gpsErro;
  return '<div class="gps on"><div class="lin"><span class="dot'+(ok?'':' off')+'"></span><div><b>Roteiro em andamento</b> desde '+hora(rota.inicio)+'<div class="small">'+(gpsErro?esc(gpsErro):ok?'GPS ativo'+(gpsUlt?' · enviado às '+hora(new Date(gpsUlt).toISOString()):''):'GPS pausado — toque aqui na página para retomar')+'</div></div></div><button class="b-fim" data-encerrar="'+pend+'"'+(gpsOcup?' disabled':'')+'>■ Encerrar roteiro</button></div>';
 }
+function pendentes(){var P=(rota&&rota.paradas)||[];return P.filter(function(p){var e=estado[p.id];return !(e&&!e.pendente&&(e.status==='entregue'||e.status==='fracassada'))}).length}
+function verificarFim(){if(!rota||!rota.inicio||rota.fim||!(rota.paradas||[]).length||fila.length)return;if(pendentes()>0)return;if(gpsOcup){setTimeout(verificarFim,3000);return}encerrarRoteiro('auto')}
+function executarAcao(){if(!ACAO||!rota)return;var a=ACAO;ACAO='';try{var u=new URL(location.href);u.searchParams.delete('a');history.replaceState(null,'',u.toString())}catch(e){}
+ if(a==='ini'){if(rota.fim)toast('Este roteiro já foi finalizado às '+hora(rota.fim));else if(rota.inicio)toast('Roteiro já iniciado às '+hora(rota.inicio)+' — GPS ativo');else iniciarRoteiro(false)}
+ else if(a==='fim'){if(rota.fim)toast('Roteiro já finalizado às '+hora(rota.fim));else if(!rota.inicio)toast('O roteiro ainda não foi iniciado',true);else encerrarRoteiro(pendentes())}}
 function lerPos(){return new Promise(function(ok){if(!navigator.geolocation)return ok(null);var t=setTimeout(function(){ok(gpsPos)},8000);navigator.geolocation.getCurrentPosition(function(p){clearTimeout(t);gpsPos={lat:p.coords.latitude,lng:p.coords.longitude,prec:Math.round(p.coords.accuracy)};gpsErro='';ok(gpsPos)},function(e){clearTimeout(t);if(e&&e.code===1)gpsErro='Localização bloqueada: libere a localização para este site nas configurações do celular.';ok(null)},{enableHighAccuracy:true,timeout:8000,maximumAge:30000})})}
 function enviarPos(forcar){if(!gpsPos||!rota||!rota.inicio||rota.fim)return;var ag=Date.now();if(!forcar&&ag-gpsUlt<30000)return;gpsUlt=ag;
  rpc('posicao_rota',{p_id:TOKEN,p_lat:gpsPos.lat,p_lng:gpsPos.lng,p_prec:gpsPos.prec}).then(function(){var g=document.querySelector('.gps .small');if(g&&!gpsErro)g.textContent='GPS ativo · enviado às '+hora(new Date().toISOString())}).catch(function(){gpsUlt=0})}
@@ -138,12 +143,12 @@ function ligarGps(){
  try{if(navigator.wakeLock&&document.visibilityState==='visible')navigator.wakeLock.request('screen').then(function(w){wake=w}).catch(function(){})}catch(e){}
 }
 function desligarGps(){if(gpsW!==null){try{navigator.geolocation.clearWatch(gpsW)}catch(e){}gpsW=null}try{if(wake){wake.release();wake=null}}catch(e){}}
-function iniciarRoteiro(){gpsOcup=true;render();lerPos().then(function(p){
+function iniciarRoteiro(auto){if(gpsOcup||!rota||rota.inicio)return;gpsOcup=true;render();lerPos().then(function(p){
  if(!p&&gpsErro){gpsOcup=false;render();toast(gpsErro,true);return}
- return rpc('iniciar_rota',{p_id:TOKEN,p_lat:p?p.lat:null,p_lng:p?p.lng:null,p_prec:p?p.prec:null}).then(function(r){rota.inicio=r.inicio;rota.fim=null;gpsUlt=Date.now();gpsOcup=false;ligarGps();render();toast('▶ Roteiro iniciado às '+hora(r.inicio)+'. Boa rota!')})
+ return rpc('iniciar_rota',{p_id:TOKEN,p_lat:p?p.lat:null,p_lng:p?p.lng:null,p_prec:p?p.prec:null}).then(function(r){rota.inicio=r.inicio;rota.fim=null;gpsUlt=Date.now();gpsOcup=false;ligarGps();render();toast(auto?'▶ Roteiro iniciado automaticamente às '+hora(r.inicio):'▶ Roteiro iniciado às '+hora(r.inicio)+'. Boa rota!');verificarFim()})
 }).catch(function(e){gpsOcup=false;render();toast(/function|schema/i.test(String(e.message))?'Função de GPS ainda não instalada no servidor. Avise a logística.':'Não consegui iniciar: '+e.message,true)})}
-function encerrarRoteiro(pend){if(+pend>0&&!confirm('Ainda há '+pend+' entrega(s) sem baixa. Encerrar o roteiro mesmo assim?'))return;if(+pend===0&&!confirm('Encerrar o roteiro agora?'))return;
- gpsOcup=true;render();lerPos().then(function(p){return rpc('encerrar_rota',{p_id:TOKEN,p_lat:p?p.lat:null,p_lng:p?p.lng:null,p_prec:p?p.prec:null})}).then(function(r){rota.fim=r.fim;rota.inicio=r.inicio;gpsOcup=false;desligarGps();render();toast('🏁 Roteiro encerrado às '+hora(r.fim)+'. Obrigado!')}).catch(function(e){gpsOcup=false;render();toast('Não consegui encerrar: '+e.message,true)})}
+function encerrarRoteiro(pend){if(gpsOcup||!rota||!rota.inicio||rota.fim)return;var auto=pend==='auto';if(!auto&&+pend>0&&!confirm('Ainda há '+pend+' entrega(s) sem baixa. Encerrar o roteiro mesmo assim?'))return;if(!auto&&+pend===0&&!confirm('Encerrar o roteiro agora?'))return;
+ gpsOcup=true;render();lerPos().then(function(p){return rpc('encerrar_rota',{p_id:TOKEN,p_lat:p?p.lat:null,p_lng:p?p.lng:null,p_prec:p?p.prec:null})}).then(function(r){rota.fim=r.fim;rota.inicio=r.inicio;gpsOcup=false;desligarGps();render();toast(auto?'🏁 Última entrega concluída — roteiro finalizado às '+hora(r.fim)+'. Obrigado!':'🏁 Roteiro encerrado às '+hora(r.fim)+'. Obrigado!')}).catch(function(e){gpsOcup=false;render();toast('Não consegui encerrar: '+e.message,true)})}
 document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible'&&rota&&rota.inicio&&!rota.fim){desligarGps();ligarGps();lerPos().then(function(){enviarPos(true);render()})}});
 function reduzir(file){return new Promise(function(ok,er){var img=new Image(),u=URL.createObjectURL(file);img.onload=function(){var M=1600,w=img.width,h=img.height,k=Math.min(1,M/Math.max(w,h));var c=document.createElement('canvas');c.width=Math.round(w*k);c.height=Math.round(h*k);c.getContext('2d').drawImage(img,0,0,c.width,c.height);c.toBlob(function(b){URL.revokeObjectURL(u);b?ok(b):er(new Error('foto'))},'image/jpeg',0.72)};img.onerror=function(){er(new Error('não consegui ler a foto'))};img.src=u})}
 function gps(){return new Promise(function(ok){if(!navigator.geolocation)return ok(null);var t=setTimeout(function(){ok(null)},6000);navigator.geolocation.getCurrentPosition(function(p){clearTimeout(t);ok({lat:p.coords.latitude,lng:p.coords.longitude})},function(){clearTimeout(t);ok(null)},{enableHighAccuracy:true,timeout:6000,maximumAge:60000})})}
@@ -154,12 +159,13 @@ function processarFila(){
  Promise.all(ps).then(function(){return rpc('registrar_baixa',{p_id:TOKEN,p_parada:it.parada,p_status:it.status,p_obs:it.obs||null,p_fotos:it.fotos.map(function(f){return{tipo:f.tipo,path:f.path}}),p_lat:it.pos?it.pos.lat:null,p_lng:it.pos?it.pos.lng:null})}).then(function(res){
   fila.shift();enviando=false;var e=estado[it.parada]=estado[it.parada]||{};
   if(it.status==='chegada'){e.chegada=res.criado_em;toast('Chegada registrada')}else{e.status=it.status;e.quando=res.criado_em;e.obs=it.obs;e.pendente=false;delete fotos[it.parada];toast(it.status==='entregue'?'✅ Baixa enviada!':'Entrega fracassada registrada');aberto=null}
-  salvarLocal();render();processarFila();
+  salvarLocal();render();processarFila();if(it.status!=='chegada')verificarFim();
  }).catch(function(err){enviando=false;var msg=String(err&&err.message||err);
   if(/Failed to fetch|NetworkError|Load failed|network/i.test(msg)){toast('Sem sinal — vou tentar enviar de novo sozinho',true);setTimeout(processarFila,15000)}
   else{fila.shift();var e=estado[it.parada];if(e){e.pendente=false;if(it.status!=='chegada')delete e.status}toast(msg,true);render();processarFila()}});
 }
 function enfileirar(parada,status,obs,fs){
+ if(rota&&!rota.inicio&&!rota.fim)iniciarRoteiro(true);
  gps().then(function(pos){
   fila.push({parada:parada,status:status,obs:obs,fotos:fs,pos:pos});
   if(status!=='chegada'){var e=estado[parada]=estado[parada]||{};e.pendente=true;e.status=status;e.quando=new Date().toISOString();e.obs=obs}
