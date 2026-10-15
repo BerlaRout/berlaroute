@@ -53,6 +53,14 @@ button{font:inherit;font-weight:700;border:0;border-radius:10px;padding:14px;cur
 .msg{padding:30px 16px;text-align:center;color:var(--mut)}
 .feito{font-size:14px;margin-top:8px;padding:8px;border-radius:8px;background:#f0fdf4}
 .feito.fail{background:#fef2f2}
+.gps{background:#fff;border:1px solid var(--ln);border-radius:12px;padding:12px;margin-bottom:12px}
+.gps.on{border-color:#16a34a;background:#f0fdf4}.gps.fim{background:#f8fafc}
+.gps .lin{display:flex;align-items:center;gap:10px}
+.gps .dot{width:12px;height:12px;border-radius:50%;background:#16a34a;flex:0 0 12px;animation:pis 1.6s infinite}
+.gps .dot.off{background:#f59e0b;animation:none}
+@keyframes pis{0%{box-shadow:0 0 0 0 rgba(22,163,74,.6)}100%{box-shadow:0 0 0 12px rgba(22,163,74,0)}}
+.b-ini{width:100%;background:#16a34a;color:#fff;font-size:18px}
+.b-fim{width:100%;background:#fff;color:#14201a;border:2px solid #14201a;margin-top:10px}
 </style>
 </head>
 <body>
@@ -63,6 +71,7 @@ button{font:inherit;font-weight:700;border:0;border-radius:10px;padding:14px;cur
 "use strict";
 var CFG={url:'https://nuicnpxpuhlbmfrmdirf.supabase.co',key:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im51aWNucHhwdWhsYm1mcm1kaXJmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0NTA5MjEsImV4cCI6MjEwNzAyNjkyMX0.epWBD3u8JwjRWllQFJovBO5d4WX42xzXTKsnb9HnJwc'};
 var QS=new URLSearchParams(location.search);var TOKEN=QS.get('r')||'';var SOLO=QS.get('p')||'';var verTodas=!SOLO;
+var gpsW=null,gpsUlt=0,gpsPos=null,gpsErro='',wake=null,gpsOcup=false;
 var rota=null,estado={},fotos={},fila=[],enviando=false,aberto=null;
 var MOTIVOS=['Cliente ausente / local fechado','Endereço não encontrado','Recusado pelo cliente','Sem acesso / portaria não liberou','Atraso – cliente não aceitou','Outro (descreva)'];
 function $(s){return document.querySelector(s)}
@@ -78,7 +87,7 @@ function carregar(){
   if(!r){$('#m').innerHTML='<div class="msg">Rota não encontrada ou expirada. Fale com a logística.</div>';$('#t').textContent='BerlaRoute';return}
   rota=r;estado={};
   (r.baixas||[]).forEach(function(b){var e=estado[b.parada_id]=estado[b.parada_id]||{};if(b.status==='chegada')e.chegada=b.criado_em;else{e.status=b.status;e.quando=b.criado_em;e.obs=b.obs}});
-  render();
+  render();ligarGps();if(rota.inicio&&!rota.fim)lerPos().then(function(){enviarPos(true)});
  }).catch(function(e){$('#m').innerHTML='<div class="msg">Sem conexão para carregar a rota.<br><br><button class="b-ok" onclick="carregar()">Tentar de novo</button></div>'});
 }
 function render(){
@@ -90,7 +99,7 @@ function render(){
  var ids=P.map(function(p){return p.id});if(SOLO&&ids.indexOf(SOLO)<0)verTodas=true;
  if(SOLO&&!verTodas&&aberto===null&&!(estado[SOLO]&&estado[SOLO].status))aberto=SOLO;
  var soloIdx=ids.indexOf(SOLO),prox=null;if(SOLO&&!verTodas){for(var k=soloIdx+1;k<P.length;k++){var ek=estado[P[k].id];if(!(ek&&(ek.status==='entregue'||ek.status==='fracassada'))){prox=P[k];break}}}
- $('#m').innerHTML=(SOLO&&!verTodas?'<p class="small" style="margin:0 0 8px">Entrega '+(soloIdx+1)+' de '+P.length+'</p>':'')+P.map(function(p,i){
+ $('#m').innerHTML=htmlGps(P.length-feitas)+(SOLO&&!verTodas?'<p class="small" style="margin:0 0 8px">Entrega '+(soloIdx+1)+' de '+P.length+'</p>':'')+P.map(function(p,i){
   if(SOLO&&!verTodas&&p.id!==SOLO)return '';
   var e=estado[p.id]||{},f=fotos[p.id]||{};
   var cls=e.status==='entregue'?'ok':e.status==='fracassada'?'fail':'';
@@ -112,6 +121,30 @@ function render(){
   '<div class="body"><div class="links"><a href="https://www.google.com/maps/dir/?api=1&destination='+ll+'" target="_blank" rel="noopener">🗺️ Maps</a><a href="https://waze.com/ul?'+(p.lat!=null?'ll='+ll+'&navigate=yes':'q='+q)+'" target="_blank" rel="noopener">🚗 Waze</a>'+(p.tel?'<a href="tel:'+esc(String(p.tel).replace(/[^0-9+]/g,''))+'">📞 Ligar</a>':'')+'</div>'+(p.obs?'<div class="obsof">'+esc(p.obs)+'</div>':'')+corpo+'</div></div>';
  }).join('')+(SOLO&&!verTodas?((estado[SOLO]&&estado[SOLO].status&&!estado[SOLO].pendente)?'<div class="feito" style="text-align:center">Pronto! '+(prox?'Volte ao WhatsApp e toque no link da próxima entrega: <b>'+esc(prox.cliente)+'</b>.':'Esta era a última entrega da rota. Obrigado!')+'</div>':'')+'<button class="b-chg" data-todas="1" style="background:#eef2f0;color:#14201a">Ver todas as entregas da rota</button>':'')+'<p class="small" style="text-align:center">BerlaRoute · em caso de dúvida fale com a logística</p>';
 }
+function hm(ms){var m=Math.round(ms/60000);return Math.floor(m/60)+'h'+('0'+m%60).slice(-2)}
+function htmlGps(pend){
+ if(!rota)return '';
+ if(rota.fim)return '<div class="gps fim"><b>🏁 Roteiro encerrado</b><div class="small">Início '+hora(rota.inicio)+' · término '+hora(rota.fim)+' · '+hm(new Date(rota.fim)-new Date(rota.inicio))+'</div></div>';
+ if(!rota.inicio)return '<div class="gps"><button class="b-ini" data-ini="1"'+(gpsOcup?' disabled':'')+'>▶ Iniciar roteiro</button><p class="small" style="margin:8px 0 0">Ao iniciar, sua localização é compartilhada com a logística <b>somente até você encerrar o roteiro</b>. Deixe esta página aberta sempre que possível.</p></div>';
+ var ok=gpsW!==null&&!gpsErro;
+ return '<div class="gps on"><div class="lin"><span class="dot'+(ok?'':' off')+'"></span><div><b>Roteiro em andamento</b> desde '+hora(rota.inicio)+'<div class="small">'+(gpsErro?esc(gpsErro):ok?'GPS ativo'+(gpsUlt?' · enviado às '+hora(new Date(gpsUlt).toISOString()):''):'GPS pausado — toque aqui na página para retomar')+'</div></div></div><button class="b-fim" data-encerrar="'+pend+'"'+(gpsOcup?' disabled':'')+'>■ Encerrar roteiro</button></div>';
+}
+function lerPos(){return new Promise(function(ok){if(!navigator.geolocation)return ok(null);var t=setTimeout(function(){ok(gpsPos)},8000);navigator.geolocation.getCurrentPosition(function(p){clearTimeout(t);gpsPos={lat:p.coords.latitude,lng:p.coords.longitude,prec:Math.round(p.coords.accuracy)};gpsErro='';ok(gpsPos)},function(e){clearTimeout(t);if(e&&e.code===1)gpsErro='Localização bloqueada: libere a localização para este site nas configurações do celular.';ok(null)},{enableHighAccuracy:true,timeout:8000,maximumAge:30000})})}
+function enviarPos(forcar){if(!gpsPos||!rota||!rota.inicio||rota.fim)return;var ag=Date.now();if(!forcar&&ag-gpsUlt<30000)return;gpsUlt=ag;
+ rpc('posicao_rota',{p_id:TOKEN,p_lat:gpsPos.lat,p_lng:gpsPos.lng,p_prec:gpsPos.prec}).then(function(){var g=document.querySelector('.gps .small');if(g&&!gpsErro)g.textContent='GPS ativo · enviado às '+hora(new Date().toISOString())}).catch(function(){gpsUlt=0})}
+function ligarGps(){
+ if(!rota||!rota.inicio||rota.fim||gpsW!==null||!navigator.geolocation)return;
+ gpsW=navigator.geolocation.watchPosition(function(p){gpsPos={lat:p.coords.latitude,lng:p.coords.longitude,prec:Math.round(p.coords.accuracy)};var era=gpsErro;gpsErro='';if(era)render();enviarPos(false)},function(e){if(e&&e.code===1){gpsErro='Localização bloqueada: libere a localização para este site nas configurações do celular.';desligarGps();render()}},{enableHighAccuracy:true,maximumAge:15000,timeout:30000});
+ try{if(navigator.wakeLock&&document.visibilityState==='visible')navigator.wakeLock.request('screen').then(function(w){wake=w}).catch(function(){})}catch(e){}
+}
+function desligarGps(){if(gpsW!==null){try{navigator.geolocation.clearWatch(gpsW)}catch(e){}gpsW=null}try{if(wake){wake.release();wake=null}}catch(e){}}
+function iniciarRoteiro(){gpsOcup=true;render();lerPos().then(function(p){
+ if(!p&&gpsErro){gpsOcup=false;render();toast(gpsErro,true);return}
+ return rpc('iniciar_rota',{p_id:TOKEN,p_lat:p?p.lat:null,p_lng:p?p.lng:null,p_prec:p?p.prec:null}).then(function(r){rota.inicio=r.inicio;rota.fim=null;gpsUlt=Date.now();gpsOcup=false;ligarGps();render();toast('▶ Roteiro iniciado às '+hora(r.inicio)+'. Boa rota!')})
+}).catch(function(e){gpsOcup=false;render();toast(/function|schema/i.test(String(e.message))?'Função de GPS ainda não instalada no servidor. Avise a logística.':'Não consegui iniciar: '+e.message,true)})}
+function encerrarRoteiro(pend){if(+pend>0&&!confirm('Ainda há '+pend+' entrega(s) sem baixa. Encerrar o roteiro mesmo assim?'))return;if(+pend===0&&!confirm('Encerrar o roteiro agora?'))return;
+ gpsOcup=true;render();lerPos().then(function(p){return rpc('encerrar_rota',{p_id:TOKEN,p_lat:p?p.lat:null,p_lng:p?p.lng:null,p_prec:p?p.prec:null})}).then(function(r){rota.fim=r.fim;rota.inicio=r.inicio;gpsOcup=false;desligarGps();render();toast('🏁 Roteiro encerrado às '+hora(r.fim)+'. Obrigado!')}).catch(function(e){gpsOcup=false;render();toast('Não consegui encerrar: '+e.message,true)})}
+document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible'&&rota&&rota.inicio&&!rota.fim){desligarGps();ligarGps();lerPos().then(function(){enviarPos(true);render()})}});
 function reduzir(file){return new Promise(function(ok,er){var img=new Image(),u=URL.createObjectURL(file);img.onload=function(){var M=1600,w=img.width,h=img.height,k=Math.min(1,M/Math.max(w,h));var c=document.createElement('canvas');c.width=Math.round(w*k);c.height=Math.round(h*k);c.getContext('2d').drawImage(img,0,0,c.width,c.height);c.toBlob(function(b){URL.revokeObjectURL(u);b?ok(b):er(new Error('foto'))},'image/jpeg',0.72)};img.onerror=function(){er(new Error('não consegui ler a foto'))};img.src=u})}
 function gps(){return new Promise(function(ok){if(!navigator.geolocation)return ok(null);var t=setTimeout(function(){ok(null)},6000);navigator.geolocation.getCurrentPosition(function(p){clearTimeout(t);ok({lat:p.coords.latitude,lng:p.coords.longitude})},function(){clearTimeout(t);ok(null)},{enableHighAccuracy:true,timeout:6000,maximumAge:60000})})}
 function subir(blob,path){return fetch(CFG.url+'/storage/v1/object/baixas/'+path,{method:'POST',headers:{'apikey':CFG.key,'Authorization':'Bearer '+CFG.key,'Content-Type':'image/jpeg'},body:blob}).then(function(r){if(!r.ok&&r.status!==409)return r.text().then(function(t){throw new Error('falha ao enviar foto ('+r.status+')')})})}
@@ -134,7 +167,9 @@ function enfileirar(parada,status,obs,fs){
  });
 }
 document.addEventListener('click',function(ev){
- var t=ev.target.closest('[data-tg],[data-chg],[data-ok],[data-fx],[data-fail],[data-refazer],[data-todas]');if(!t)return;var D=t.dataset;
+ var t=ev.target.closest('[data-ini],[data-encerrar],[data-tg],[data-chg],[data-ok],[data-fx],[data-fail],[data-refazer],[data-todas]');if(!t)return;var D=t.dataset;
+ if(D.ini){iniciarRoteiro();return}
+ if(D.encerrar!=null){encerrarRoteiro(D.encerrar);return}
  if(D.todas){verTodas=true;render();window.scrollTo(0,0);return}
  if(D.tg){aberto=aberto===D.tg?null:D.tg;render();var c=document.getElementById('c_'+D.tg);if(c&&aberto)c.scrollIntoView({block:'start',behavior:'smooth'});return}
  if(D.chg){enfileirar(D.chg,'chegada',null,[]);return}
@@ -148,6 +183,7 @@ document.addEventListener('click',function(ev){
   var fs=[];['caixas','os'].forEach(function(k){if(f3[k])fs.push({tipo:'outra',blob:f3[k].blob,path:f3[k].path})});
   enfileirar(D.fail,'fracassada',ob,fs);return}
 });
+document.addEventListener('touchstart',function(){if(rota&&rota.inicio&&!rota.fim&&gpsW===null&&!gpsErro){ligarGps();render()}},{passive:true});
 document.addEventListener('input',function(ev){var t=ev.target;if(t.dataset.obs){var f=fotos[t.dataset.obs]=fotos[t.dataset.obs]||{};f.obs=t.value}});
 document.addEventListener('change',function(ev){var t=ev.target;
  if(t.dataset.motivo){var f=fotos[t.dataset.motivo]=fotos[t.dataset.motivo]||{};f.motivo=t.value;return}
