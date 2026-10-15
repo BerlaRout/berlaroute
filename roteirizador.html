@@ -570,7 +570,7 @@ async function travaDoDia(forcar,silencioso){
   else{if(silencioso){liberouPorOcio=false}modoLeitura(true,`Em edição por ${r.nome} — você está só vendo. A tela se atualiza sozinha e libera quando ${r.nome} sair.`,perfil.papel==='admin',true);iniciarLeitura()}
  }catch(e){modoLeitura(true,'Sem conexão com o servidor ('+e.message+'). Nada será salvo até reconectar.');iniciarLeitura()}
 }
-async function atualizarGeoServidor(){try{const r=((await sb('/rest/v1/app_dados?select=valor&chave=eq.geo'))||[])[0];if(!r||!r.valor)return;let n=0;for(const[k,v]of Object.entries(r.valor))if(!state.geo[k]||state.geo[k].lat==null){state.geo[k]=v;n++}if(n){ultimoPush.geo=JSON.stringify(state.geo);if(aplicarCacheGeo())await recalc()}}catch(e){}}
+async function atualizarGeoServidor(){try{const r=((await sb('/rest/v1/app_dados?select=valor&chave=eq.geo'))||[])[0];if(!r||!r.valor)return;let n=0;for(const[k,v]of Object.entries(r.valor))if(v&&v.lat!=null&&(!state.geo[k]||state.geo[k].lat==null)){state.geo[k]=v;n++}if(n){ultimoPush.geo=JSON.stringify(state.geo);if(aplicarCacheGeo())await recalc()}}catch(e){}}
 async function pedirEdicao(){const d=plan().data;try{const r=await sbRpc('pedir_trava',{p_data:d,p_nome:quemSou()});
  if(r&&r.ok){pedidoEnviado=true;notify('Pedido enviado — quem está editando tem 1 minuto para liberar');modoLeitura(true,$('#netBanner span')?$('#netBanner span').textContent.replace(/^🔒\s*/,''):'',perfil.papel==='admin',true);iniciarLeitura(10000)}
  else await travaDoDia()}catch(e){notify('Não consegui enviar o pedido: '+e.message,'bad')}}
@@ -801,14 +801,16 @@ async function geocodeAddr(q,endereco){
 }
 /* pino suspeito = localizado pela versão antiga (podia cair no centro da cidade) */
 function geoSuspeito(s){return s.lat!=null&&(s.geoSrc==='photon'||s.geoSrc==='nominatim'||s.geoSrc==='cep')&&!s.geoV3}
+function limparGeoRuim(){let n=0;for(const[k,v]of Object.entries(state.geo||{}))if(!v||v.lat==null||v.lng==null){delete state.geo[k];n++}return n}
+function geoOcupado(){if(geocodeAll.busy&&Date.now()-(geocodeAll.t||0)>180000)geocodeAll.busy=false;return !!geocodeAll.busy}
 async function geocodeAll(force){
- if(geocodeAll.busy)return;geocodeAll.busy=true;try{
+ if(geoOcupado())return;geocodeAll.busy=true;geocodeAll.t=Date.now();try{
  const list=plan().stops.filter(s=>s.geoSrc!=='manual'&&s.geoSrc!=='coord'&&(force||s.lat==null||geoSuspeito(s)||fixoDe(s.endereco)||(chaveGoogle()&&s.geoSrc!=='google')));
  let ok=0,fail=0,n=0,conf=0;
  for(const s of list){
   n++;status(`Localizando ${n}/${list.length}: ${s.cliente||s.endereco}`);
   const key=normAddr(s.endereco);
-  let g=!force&&state.geo[key];if(g&&(g.src==='photon'||g.src==='nominatim'||g.src==='cep')&&!g.v3)g=null;
+  let g=!force&&state.geo[key];if(g&&(g.lat==null||g.lng==null||g.src==='falhou'))g=null;if(g&&(g.src==='photon'||g.src==='nominatim'||g.src==='cep')&&!g.v3)g=null;
   const fx=fixoDe(s.endereco);if(fx)g={lat:fx[0],lng:fx[1],src:'google',prec:'número',v3:1};
   const ce=coordsNoEndereco(s.endereco);if(ce)g={lat:ce.lat,lng:ce.lng,src:'coord',prec:'número',v3:1};
   if(!g&&chaveGoogle()){g=await geocodeGoogle(s.endereco);if(g)state.geo[key]=g}
@@ -835,8 +837,8 @@ async function recalc(){
  for(const v of state.vehicles){const ids=(plan().routes[v.id]||[]).filter(x=>matIdx[x]!=null);if(ids.length)sims[v.id]=simulate(v,ids,M,matIdx,S,cfg())}
  save();renderAll();agendarAnalise();autoLocalizar();agendarRepublicar();
 }
-function aplicarCacheGeo(){let n=0;for(const s of plan().stops){if(s.lat!=null||s.geoSrc==='manual')continue;const g=state.geo&&state.geo[normAddr(s.endereco)];if(g&&g.lat!=null&&g.lng!=null&&g.src!=='falhou'){s.lat=g.lat;s.lng=g.lng;s.geoSrc=g.src;s.geoPrec=g.prec;s.geoV3=1;delete s.geoNota;n++}}if(n)invalidate();return n}
-function autoLocalizar(){if(geocodeAll.busy||document.body.classList.contains('modoCel')||(NET&&(!perfil||perfil.papel==='consulta')))return;const f=plan().stops.filter(s=>s.lat==null&&s.geoSrc!=='falhou'&&s.geoSrc!=='manual');if(!f.length)return;
+function aplicarCacheGeo(){limparGeoRuim();let n=0;for(const s of plan().stops){if(s.lat!=null||s.geoSrc==='manual')continue;const g=state.geo&&state.geo[normAddr(s.endereco)];if(g&&g.lat!=null&&g.lng!=null&&g.src!=='falhou'){s.lat=g.lat;s.lng=g.lng;s.geoSrc=g.src;s.geoPrec=g.prec;s.geoV3=1;delete s.geoNota;n++}}if(n)invalidate();return n}
+function autoLocalizar(){if(geoOcupado()||document.body.classList.contains('modoCel')||(NET&&(!perfil||perfil.papel==='consulta')))return;const f=plan().stops.filter(s=>s.lat==null&&s.geoSrc!=='manual');if(!f.length)return;
  const k=plan().data+'|'+f.map(s=>s.id+s.endereco).join(',');if(autoLocalizar.k===k)return;autoLocalizar.k=k;setTimeout(()=>geocodeAll(false),400)}
 function assinaturaRota(vid){const sim=sims[vid];if(!sim)return'';const S=stopsById();return sim.stops.map(st=>{const x=S[st.id]||{};return [st.id,fmtHM(st.inicio),x.endereco,x.lat,x.lng,x.volume,x.obs].join('~')}).join('|')}
 let repubTimer=null;function agendarRepublicar(){clearTimeout(repubTimer);repubTimer=setTimeout(async()=>{if(!celOk()||(NET&&!podeEditar))return;const P=plan();const pub=P.celPub||{};P.celSig=P.celSig||{};let n=0;
@@ -1373,7 +1375,7 @@ async function finishImport(ns){
   if(s.obs&&!(g.obs||'').includes(s.obs))g.obs=[g.obs,s.obs].filter(Boolean).join(' · ');g.npedidos=(g.npedidos||1)+1}
  for(const g of merged)if(g.idsJuntos){const nota=`ENTREGA CONJUNTA – ${g.idsJuntos.length} pedidos: ${g.idsJuntos.join(', ')}`;g.obs=nota+(g.obs?' · '+g.obs:'')}
  ns=merged;if(nMerged)setTimeout(()=>notify(`${nMerged} pedido(s) no mesmo endereço e horário foram juntados numa entrega só`),2500);
- for(const s of ns){const g=state.geo[normAddr(s.endereco)];if(g){s.lat=g.lat;s.lng=g.lng;s.geoSrc=g.src;s.geoPrec=g.prec}}
+ for(const s of ns){const g=state.geo[normAddr(s.endereco)];if(g&&g.lat!=null&&g.lng!=null){s.lat=g.lat;s.lng=g.lng;s.geoSrc=g.src;s.geoPrec=g.prec}}
  if($('#impReplace').checked){plan().stops=ns;plan().routes={}}else plan().stops.push(...ns);
  $('#mImport').classList.remove('on');$('#pdate').value=plan().data;invalidate();renderMap.fitted=false;save();
  const falta=ns.filter(s=>s.lat==null).length;
@@ -1403,7 +1405,7 @@ async function saveStop(){
  const s=editing||{id:uid(),lat:null,lng:null};
  const changed=!editing||editing.endereco!==e;
  Object.assign(s,{cliente:$('#sCli').value.trim(),os:$('#sOs').value.trim(),endereco:e,jIni:parseHM($('#sJi').value),jFim:parseHM($('#sJf').value),servico:$('#sSrv').value===''?null:+$('#sSrv').value,volume:$('#sVol').value===''?null:+$('#sVol').value,obs:$('#sObs').value.trim(),fixo:$('#sFix').value||null});
- if(changed){s.lat=null;s.lng=null;const g=state.geo[normAddr(e)];if(g){s.lat=g.lat;s.lng=g.lng;s.geoSrc=g.src;s.geoPrec=g.prec}}
+ if(changed){s.lat=null;s.lng=null;delete s.geoSrc;delete s.geoPrec;const g=state.geo[normAddr(e)];if(g&&g.lat!=null&&g.lng!=null){s.lat=g.lat;s.lng=g.lng;s.geoSrc=g.src;s.geoPrec=g.prec}}
  if(!editing)plan().stops.push(s);
  $('#mStop').classList.remove('on');invalidate();save();
  if(s.lat==null){await recalc();await geocodeAll(false)}else await recalc();
@@ -1643,7 +1645,7 @@ document.addEventListener('click',async e=>{
   case'stopCancel':$('#mStop').classList.remove('on');break;
   case'stopSave':await saveStop();break;
   case'bGeo':if(!guard(2))break;await geocodeAll(false);break;
-  case'bOpt':if(!guard(3))break;await optimizeAll();break;
+  case'bOpt':{if(plan().stops.some(s=>s.lat==null&&s.geoSrc!=='manual')){await geocodeAll(false)}if(!guard(3))break;await optimizeAll();break}
   case'bXls':if(!guard(4))break;exportXlsx();break;
   case'bPrint':if(!guard(4))break;printPlan();break;
   case'bPE':if(!guard(4))break;openPE();break;
