@@ -1182,17 +1182,32 @@ async function dashColetar(ini,fim){
   const S={};for(const s of P.stops)S[s.id]=s;const res=P.resumo||{};
   for(const[vid,ids]of Object.entries(P.routes||{})){if(!ids||!ids.length)continue;
    const R=res[vid]||{};const veh=vById(vid)||(P.extras||[]).find(x=>x.id===vid)||{};const mot=R.mot||veh.motorista||veh.nome||'—';const ra=RA[vid]||{};
-   rotas.push({data:d,vid,mot,rot:R.rot||mot,n:ids.length,km:R.km,custo:R.custo,saidaPrev:R.saida,fimPrev:R.fimPrev,ultimaPrev:R.ultima,inicio:ra.inicio||null,fim:ra.fim||null,lat:ra.lat,lng:ra.lng,pos_em:ra.pos_em||null,enviado:!!(P.celPub||{})[vid],ids:ids.slice()});
+   rotas.push({data:d,vid,mot,veh,coords:ids.map(id=>S[id]).filter(x=>x&&x.lat!=null).map(x=>[x.lat,x.lng]),gid:veh.parentId||vid,n:ids.length,km:R.km,custo:R.custo,rot:R.rot||mot,saidaPrev:R.saida,fimPrev:R.fimPrev,ultimaPrev:R.ultima,inicio:ra.inicio||null,fim:ra.fim||null,lat:ra.lat,lng:ra.lng,pos_em:ra.pos_em||null,enviado:!!(P.celPub||{})[vid],ids:ids.slice()});
    for(const sid of ids){const s=S[sid];if(!s)continue;const b=B[sid]||{};const jf=jEnd(s,cfg());
     const st=b.est==='completed'?'entregue':b.est==='failed'?'fracassada':'pendente';
     const prev=R.prev?R.prev[sid]:null;
     linhas.push({data:d,vid,mot,sid,cliente:s.cliente||'—',grupo:grupoCliente(s.cliente),os:s.os||'',st,h:b.h??null,ci:b.ci??null,jIni:s.jIni,jFim:jf,prev,caixas:+s.volume||0,cel:!!b.cel,fotos:b.fotos||0,
      noH:st==='entregue'?(jf==null||b.h==null||b.h<=jf+tol):null,motivo:st==='fracassada'?(String(b.obs||'Sem motivo informado').split(/\s+–\s+/)[0]):null,
      tCli:b.ci!=null&&b.h!=null&&b.h>=b.ci?b.h-b.ci:null})}}}
+ await completarKmCusto(rotas);
+ for(const r of rotas){const Lr=linhas.filter(x=>x.vid===r.vid&&x.data===r.data);const ev=Lr.flatMap(x=>[x.ci,x.h]).filter(x=>x!=null);
+  const ini=r.inicio?hm2min(hmLocal(r.inicio)):(ev.length?Math.min(...ev):null);const fimM=r.fim?hm2min(hmLocal(r.fim)):(Lr.some(x=>x.h!=null)?Math.max(...Lr.map(x=>x.h).filter(x=>x!=null)):null);
+  r.jorMin=ini!=null&&fimM!=null&&fimM>ini?fimM-ini:null;r.jorEst=!(r.inicio&&r.fim)}
  return{dias,linhas,rotas,temGps:Object.keys(RAS).length>0||NET}}
+const kmCacheDash={};
+async function completarKmCusto(rotas){const d=cfg().depot;const falta=rotas.filter(r=>r.km==null&&r.coords.length);
+ let i=0;const worker=async()=>{while(i<falta.length){const r=falta[i++];const pts=[[d.lat,d.lng]].concat(r.coords);const k=pts.map(c=>c[0].toFixed(5)+','+c[1].toFixed(5)).join(';');
+  if(kmCacheDash[k]==null){let km=null;try{const o=await rotaOSRM(pts);if(o&&o.km)km=o.legsKm?o.legsKm.reduce((a,b)=>a+b,0):o.km}catch(e){}
+   if(km==null){km=0;for(let j=1;j<pts.length;j++)km+=hav({lat:pts[j-1][0],lng:pts[j-1][1]},{lat:pts[j][0],lng:pts[j][1]})*1.3}kmCacheDash[k]=km}
+  r.km=kmCacheDash[k];r.kmEst=true}};
+ await Promise.all([worker(),worker(),worker()]);
+ const grupos={};for(const r of rotas){const g=r.data+'|'+r.gid;(grupos[g]=grupos[g]||[]).push(r)}
+ for(const g of Object.values(grupos)){if(g.every(r=>r.custo!=null))continue;const pai=g.find(r=>r.vid===r.gid)||g[0];const vp=vById(pai.gid)||pai.veh||{};
+  const kmG=g.reduce((a,r)=>a+(r.km||0),0);let c=null;try{c=tarifaCusto(vp,kmG,cfg().niveis)}catch(e){}
+  for(const r of g)if(r.custo==null)r.custo=r===pai?(c||0):0}}
 function dashKpis(L,R){const ent=L.filter(x=>x.st==='entregue'),fx=L.filter(x=>x.st==='fracassada');const feitas=ent.length+fx.length;
  const comJ=ent.filter(x=>x.noH!=null);const custo=R.reduce((a,r)=>a+(r.custo||0),0),km=R.reduce((a,r)=>a+(r.km||0),0);
- const jor=R.filter(r=>r.inicio&&r.fim).map(r=>(new Date(r.fim)-new Date(r.inicio))/60000);const tc=L.map(x=>x.tCli).filter(x=>x!=null);
+ const jor=R.map(r=>r.jorMin).filter(x=>x!=null);const tc=L.map(x=>x.tCli).filter(x=>x!=null);
  const avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
  return{tot:L.length,ent:ent.length,fx:fx.length,pend:L.length-feitas,otif:comJ.length?comJ.filter(x=>x.noH).length/comJ.length:null,fxPct:feitas?fx.length/feitas:null,
   custo,km,cpe:L.length&&custo?custo/L.length:null,cpk:km&&custo?custo/km:null,jor:avg(jor),tCli:avg(tc),rotas:R.length,
@@ -1237,7 +1252,7 @@ function svgBarras(dias,series,{alt=170,fmt=v=>v,leg=true,max:maxFixo}={}){/* se
   if(dias.length<=31&&(i%Math.ceil(dias.length/16)===0))g+=`<text x="${x(i)+bw/2}" y="${H-pad.b+14}" text-anchor="middle" class="dax">${d.slice(8)}/${d.slice(5,7)}</text>`});
  return `${leg&&series.length>1?`<div class="dleg">${series.map(s=>`<span><i style="background:${s.cor}"></i>${s.nome}</span>`).join('')}</div>`:''}<div class="dchart"><svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:${Math.min(W,640)}px;display:block">${g}</svg></div>`}
 function htmlDashHist(D){const L=D.linhas,R=D.rotas,K=dashKpis(L,R);const dias=D.dias.filter(d=>L.some(x=>x.data===d));
- let h=`<div class="dtiles">${tile('Entregas',K.tot,`${dias.length} dia(s) · ${K.caixas} cx`)}${tile('No horário',pct(K.otif),`tolerância ${tolOTIF()} min`,corPct(K.otif,.9,.75))}${tile('Fracasso',pct(K.fxPct),`${K.fx} entrega(s)`,corPct(K.fxPct,.03,.08,true))}${tile('Custo previsto',fmtR(K.custo),'')}${tile('Custo/entrega',fmtR(K.cpe),'')}${tile('Custo/km',fmtR(K.cpk),fmtKm(K.km)+' pagos')}${tile('Jornada média',K.jor!=null?fmtHM(K.jor):'—','início→fim do roteiro (GPS)')}${tile('Tempo no cliente',K.tCli!=null?Math.round(K.tCli)+' min':'—','chegada → baixa')}</div>`;
+ let h=`<div class="dtiles">${tile('Entregas',K.tot,`${dias.length} dia(s) · ${K.caixas} cx`)}${tile('No horário',pct(K.otif),`tolerância ${tolOTIF()} min`,corPct(K.otif,.9,.75))}${tile('Fracasso',pct(K.fxPct),`${K.fx} entrega(s)`,corPct(K.fxPct,.03,.08,true))}${tile('Custo previsto',fmtR(K.custo),'')}${tile('Custo/entrega',fmtR(K.cpe),'')}${tile('Custo/km',fmtR(K.cpk),fmtKm(K.km)+' pagos')}${tile('Jornada média',K.jor!=null?fmtHM(K.jor):'—','início→fim (GPS ou 1ª/última baixa)')}${tile('Tempo no cliente',K.tCli!=null?Math.round(K.tCli)+' min':'—','chegada → baixa')}</div>`;
  const por=(d,f)=>L.filter(x=>x.data===d&&f(x)).length;
  h+=`<div class="dgrid2"><div class="dcard"><h3 class="dh">Entregas por dia</h3>${svgBarras(dias,[{nome:'Entregue',cor:'#16a34a',val:d=>por(d,x=>x.st==='entregue')},{nome:'Fracassada',cor:'#dc2626',val:d=>por(d,x=>x.st==='fracassada')},{nome:'Sem baixa',cor:'#9ca3af',val:d=>por(d,x=>x.st==='pendente')}])}</div>`;
  h+=`<div class="dcard"><h3 class="dh">% no horário por dia</h3>${svgBarras(dias,[{nome:'No horário',cor:'#2f7a55',val:d=>{const e=L.filter(x=>x.data===d&&x.noH!=null);return e.length?Math.round(100*e.filter(x=>x.noH).length/e.length):0}}],{fmt:v=>Math.round(v)+'%',max:100})}</div>`;
@@ -1246,7 +1261,7 @@ function htmlDashHist(D){const L=D.linhas,R=D.rotas,K=dashKpis(L,R);const dias=D
  h+=`<div class="dcard"><h3 class="dh">Motivos de falha</h3>${ms.length?ms.map(([m,n])=>`<div class="dhb" title="${esc(m)}: ${n}"><span>${esc(m)}</span><div><i style="width:${100*n/mx}%"></i></div><b>${n}</b></div>`).join(''):'<p class="muted small">Nenhuma entrega fracassada no período 👏</p>'}</div></div>`;
  const cl={};for(const x of L){const c=cl[x.grupo]=cl[x.grupo]||{n:0,fx:0,cx:0,j:0,ok:0};c.n++;c.cx+=x.caixas;if(x.st==='fracassada')c.fx++;if(x.noH!=null){c.j++;if(x.noH)c.ok++}}
  h+=`<h3 class="dh">Por cliente</h3><div class="dtw"><table class="dtab"><thead><tr><th>Cliente</th><th>Entregas</th><th>Caixas</th><th>Fracassadas</th><th>No horário</th></tr></thead><tbody>${Object.entries(cl).sort((a,b)=>b[1].n-a[1].n).map(([c,v])=>`<tr><td>${esc(c)}</td><td>${v.n}</td><td>${v.cx}</td><td class="${v.fx?'ruim':''}">${v.fx||''}</td><td class="${corPct(v.j?v.ok/v.j:null,.9,.75)}">${pct(v.j?v.ok/v.j:null)}</td></tr>`).join('')}</tbody></table></div>`;
- if(R.some(r=>r.custo==null))h+=`<p class="small muted">Alguns dias antigos não têm custo/km salvos (foram montados antes do dashboard). A partir de agora todo roteiro otimizado guarda o previsto.</p>`;
+ if(R.some(r=>r.kmEst))h+=`<p class="small muted">Km e custo dos dias montados antes do dashboard foram recalculados pelas ruas (sede → última entrega) com a tarifa atual de cada motorista.</p>`;
  return h}
 function htmlDashRank(D){const L=D.linhas,R=D.rotas;const M={};
  for(const r of R){const m=M[r.mot]=M[r.mot]||{mot:r.mot,R:[],L:[],dias:new Set()};m.R.push(r);m.dias.add(r.data)}
