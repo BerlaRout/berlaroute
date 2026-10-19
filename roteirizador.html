@@ -535,6 +535,7 @@ async function sincronizar(){
  }catch(e){statusRede('⚠ não salvou no servidor: '+e.message,true)}
  finally{sincronizando=false}
 }
+function reaplicarBaixas(){state.celDesde=null;clearTimeout(reaplicarBaixas.t);reaplicarBaixas.t=setTimeout(function f(){try{if(typeof celBusy!=='undefined'&&celBusy){reaplicarBaixas.t=setTimeout(f,1500);return}buscarBaixas(false)}catch(e){}},1200)}
 function indexarTokens(){state.rotaIdx={};for(const[d,P]of Object.entries(state.plans||{}))for(const[vid,tk]of Object.entries(P.rotaTokens||{}))state.rotaIdx[tk]={data:d,vid}}
 function isoDias(n){const d=new Date();d.setDate(d.getDate()+n);return d.toISOString().slice(0,10)}
 async function carregarDoServidor(){
@@ -549,7 +550,7 @@ async function carregarDoServidor(){
  ultimoPush.vehicles=JSON.stringify(veicBase());ultimoPush.config=JSON.stringify(cfgServidor());ultimoPush.geo=JSON.stringify(state.geo);
  const pl=(await sb('/rest/v1/planos?select=data,plano,atualizado_em,atualizado_por&data=gte.'+isoDias(-60)))||[];
  state.plans={};pl.forEach(r=>{state.plans[r.data]=r.plano;planoMeta[r.data]={em:r.atualizado_em,por:r.atualizado_por};ultimoPush['p:'+r.data]=JSON.stringify(r.plano)});
- indexarTokens();
+ indexarTokens();reaplicarBaixas();
  aplicarModo();const d=document.body.classList.contains('modoCel')?todayISO():((state.plan&&state.plan.data)||isoDias(0));state.plan={data:'0000-00-00',stops:[],routes:{}};
  carregandoServidor=false;podeEditar=false;
  document.body.classList.toggle('naoAdmin',perfil.papel!=='admin');
@@ -599,18 +600,19 @@ async function pedirEdicao(){const d=plan().data;try{const r=await sbRpc('pedir_
 function iniciarLeitura(ms){clearInterval(leituraTimer);leituraTimer=setInterval(atualizarLeitura,ms||15000)}
 async function atualizarLeitura(){if(podeEditar||!perfil)return;const d=plan().data;
  try{if(plan().stops.some(x=>x.lat==null))await atualizarGeoServidor();const r=await buscarPlanoServidor(d);const m=planoMeta[d];
-  if(r&&(!m||m.em!==r.atualizado_em)){state.plans[d]=r.plano;planoMeta[d]={em:r.atualizado_em,por:r.atualizado_por};ultimoPush['p:'+d]=JSON.stringify(r.plano);state.plan=JSON.parse(JSON.stringify(r.plano));state.plans[d]=state.plan;indexarTokens();aplicarVeiculosDoDia(state.plan);invalidate();await recalc();updDateTag()}
+  if(r&&(!m||m.em!==r.atualizado_em)){state.plans[d]=r.plano;planoMeta[d]={em:r.atualizado_em,por:r.atualizado_por};ultimoPush['p:'+d]=JSON.stringify(r.plano);state.plan=JSON.parse(JSON.stringify(r.plano));state.plans[d]=state.plan;indexarTokens();reaplicarBaixas();aplicarVeiculosDoDia(state.plan);invalidate();await recalc();updDateTag()}
   if(document.body.classList.contains('modoCel'))try{await baixasCel()}catch(e){}
   if(perfil.papel!=='consulta'&&!liberouPorOcio&&!document.body.classList.contains('modoCel')){const x=await sbRpc('pegar_trava',{p_data:d,p_nome:quemSou(),p_forcar:false});if(x&&x.ok){await travaDoDia();notify('✏️ O dia foi liberado — agora você pode editar')}}
  }catch(e){}}
+function desdeBaixas(){const d=[plan().data,isoHoje()].sort()[0];const x=new Date(d+'T00:00:00');x.setDate(x.getDate()-3);const lim=new Date(Date.now()-40*86400000);return (x<lim?lim:x).toISOString()}
 async function baixasCel(){state.celDesde=null;return buscarBaixas(false)}
 function ehCel(){let m=null;try{m=localStorage.getItem('berlaroute_modo')}catch(e){}if(m==='cel')return true;if(m==='pc')return false;return Math.min(window.innerWidth,screen.width||9999)<=760}
 function aplicarModo(){const cel=NET&&ehCel();document.body.classList.toggle('modoCel',cel);const b=$('#bModo');if(b){b.style.display=NET&&perfil?'':'none';b.textContent=cel?'🖥 Versão completa':'📱 Acompanhar'}}
 function resumoCel(){const e=$('#celResumo');if(!e)return;const B=plan().baixa||{},S=plan().stops||[];const ok=S.filter(s=>B[s.id]&&B[s.id].est==='completed').length,fx=S.filter(s=>B[s.id]&&B[s.id].est==='failed').length;e.textContent=`${fmtDate(plan().data)} · ✅ ${ok} · ❌ ${fx} · ⏳ ${S.length-ok-fx} de ${S.length}`}
 async function aposTrocarDia(){
- if(!NET||!perfil)return;setTimeout(buscarRastreio,1500);
- if(document.body.classList.contains('modoCel')){await soltarTravaAtual();podeEditar=false;try{const r=await buscarPlanoServidor(plan().data);if(r){state.plans[plan().data]=r.plano;planoMeta[plan().data]={em:r.atualizado_em,por:r.atualizado_por};state.plan=JSON.parse(JSON.stringify(r.plano));indexarTokens();aplicarVeiculosDoDia(state.plan);invalidate();await recalc()}}catch(e){}try{await baixasCel()}catch(e){}iniciarLeitura(30000);updDateTag();resumoCel();return}const d=plan().data;
- try{const r=await buscarPlanoServidor(d);if(r){const m=planoMeta[d];if(!m||m.em!==r.atualizado_em||!state.plans[d]){state.plans[d]=r.plano;planoMeta[d]={em:r.atualizado_em,por:r.atualizado_por};ultimoPush['p:'+d]=JSON.stringify(r.plano);state.plan=JSON.parse(JSON.stringify(r.plano));state.plans[d]=state.plan;indexarTokens();aplicarVeiculosDoDia(state.plan);invalidate();await recalc()}}}catch(e){}
+ if(!NET||!perfil)return;setTimeout(buscarRastreio,1500);reaplicarBaixas();
+ if(document.body.classList.contains('modoCel')){await soltarTravaAtual();podeEditar=false;try{const r=await buscarPlanoServidor(plan().data);if(r){state.plans[plan().data]=r.plano;planoMeta[plan().data]={em:r.atualizado_em,por:r.atualizado_por};state.plan=JSON.parse(JSON.stringify(r.plano));indexarTokens();reaplicarBaixas();aplicarVeiculosDoDia(state.plan);invalidate();await recalc()}}catch(e){}try{await baixasCel()}catch(e){}iniciarLeitura(30000);updDateTag();resumoCel();return}const d=plan().data;
+ try{const r=await buscarPlanoServidor(d);if(r){const m=planoMeta[d];if(!m||m.em!==r.atualizado_em||!state.plans[d]){state.plans[d]=r.plano;planoMeta[d]={em:r.atualizado_em,por:r.atualizado_por};ultimoPush['p:'+d]=JSON.stringify(r.plano);state.plan=JSON.parse(JSON.stringify(r.plano));state.plans[d]=state.plan;indexarTokens();reaplicarBaixas();aplicarVeiculosDoDia(state.plan);invalidate();await recalc()}}}catch(e){}
  await travaDoDia();updDateTag();
 }
 function telaLogin(msg){let o=$('#loginBox');if(!o){o=document.createElement('div');o.id='loginBox';document.body.appendChild(o)}
@@ -1587,16 +1589,16 @@ const fotoUrl=path=>celBase()+'/storage/v1/object/public/baixas/'+path.split('/'
 const hmLocal=iso=>{const d=new Date(iso);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
 let celBusy=false;
 async function buscarBaixas(manual){
- if(!celOk()||celBusy)return;celBusy=true;
- try{const rows=await celRpc('listar_baixas',{p_secret:(cfg().celSecret||'').trim(),p_desde:state.celDesde||null});let n=0;
-  for(const b of rows||[]){state.celDesde=b.criado_em;const ix=(state.rotaIdx||{})[b.rota_id];if(!ix)continue;
+ if(!celOk()||celBusy)return;celBusy=true;const inicial=!state.celDesde;
+ try{const rows=await celRpc('listar_baixas',{p_secret:(cfg().celSecret||'').trim(),p_desde:state.celDesde||desdeBaixas()});let n=0;
+  for(const b of rows||[]){if(!state.celDesde||b.criado_em>state.celDesde)state.celDesde=b.criado_em;const ix=(state.rotaIdx||{})[b.rota_id];if(!ix)continue;
    const P=ix.data===plan().data?plan():state.plans[ix.data];if(!P||!(P.stops||[]).some(s=>s.id===b.parada_id))continue;
    P.baixa=P.baixa||{};const x=P.baixa[b.parada_id]=P.baixa[b.parada_id]||{co:'',ci:'',est:'pending',com:''};const hh=hmLocal(b.quando||b.criado_em);
    if(b.status==='chegada'){x.ci=hh}
    else if(b.status==='foto'){x.fotos=x.fotos||[];for(const f of (b.fotos||[])){const u=fotoUrl(f.path);if(!x.fotos.some(y=>y.url===u))x.fotos.push({tipo:f.tipo,url:u})}}
    else{x.co=hh;x.est=b.status==='entregue'?'completed':'failed';if(b.obs)x.com=b.obs;x.fotos=(x.fotos||[]).filter(y=>!(b.fotos||[]).some(f=>fotoUrl(f.path)===y.url)).concat((b.fotos||[]).map(f=>({tipo:f.tipo,url:fotoUrl(f.path)})));if(b.lat!=null)x.pos=[b.lat,b.lng]}
    x.cel=true;n++}
-  save();if(n){renderRoutes();if($('#mPE').classList.contains('on'))renderPE();if(!document.body.classList.contains('modoCel'))notify(`📲 ${n} baixa(s) recebida(s) do celular dos motoristas`)}else if(manual)notify('Nenhuma baixa nova no momento');
+  save();if(n){renderRoutes();if($('#mPE').classList.contains('on'))renderPE();if(!document.body.classList.contains('modoCel')&&!inicial)notify(`📲 ${n} baixa(s) recebida(s) do celular dos motoristas`)}else if(manual)notify('Nenhuma baixa nova no momento');
  }catch(e){if(manual)notify('Não consegui buscar as baixas: '+(e.message||e),'bad')}
  finally{celBusy=false}
 }
@@ -1767,7 +1769,7 @@ document.addEventListener('click',async e=>{
  if(D.det){const id=D.det,el=document.getElementById('det_'+id);const on=!detAbertos.has(id);on?detAbertos.add(id):detAbertos.delete(id);if(el)el.classList.toggle('on',on);b.textContent=b.textContent.replace(/[▴▾]$/,on?'▴':'▾');return}
  if(D.sec){const k=D.sec,el=document.getElementById('sec_'+k);const on=!uiGet()[k];uiSet({[k]:on});if(el)el.classList.toggle('on',on);b.textContent=on?'ocultar ▴':'mostrar ▾';return}
  if(b.id==='bModo'){const cel=!document.body.classList.contains('modoCel');try{localStorage.setItem('berlaroute_modo',cel?'cel':'pc')}catch(e){}location.reload();return}
- if(b.id==='bCelAtualizar'){b.disabled=true;try{const r=await buscarPlanoServidor(plan().data);if(r){state.plan=JSON.parse(JSON.stringify(r.plano));state.plans[plan().data]=state.plan;planoMeta[plan().data]={em:r.atualizado_em,por:r.atualizado_por};indexarTokens();aplicarVeiculosDoDia(state.plan);invalidate();await recalc()}await baixasCel();notify('Atualizado')}catch(e){}b.disabled=false;resumoCel();return}
+ if(b.id==='bCelAtualizar'){b.disabled=true;try{const r=await buscarPlanoServidor(plan().data);if(r){state.plan=JSON.parse(JSON.stringify(r.plano));state.plans[plan().data]=state.plan;planoMeta[plan().data]={em:r.atualizado_em,por:r.atualizado_por};indexarTokens();reaplicarBaixas();aplicarVeiculosDoDia(state.plan);invalidate();await recalc()}await baixasCel();notify('Atualizado')}catch(e){}b.disabled=false;resumoCel();return}
  if(D.gcola){const st=plan().stops.find(x=>x.id===D.gcola);if(!st)return;const t=prompt('Abra o endereço no Google Maps, copie o link da barra de endereço (ou clique com o botão direito no local e copie as coordenadas) e cole aqui:\n\n'+(st.cliente||'')+' — '+(st.endereco||''));if(!t)return;const c=coordsDoTexto(t.trim());
   if(!c){notify('Não encontrei coordenadas nesse texto. Cole o link completo do Google Maps (com @-23...,-46...) ou algo como -23.5415, -46.6351','bad');return}
   st.lat=c.lat;st.lng=c.lng;st.geoSrc='google';st.geoPrec='número';st.geoV3=1;delete st.geoNota;state.geo[normAddr(st.endereco)]={lat:c.lat,lng:c.lng,src:'google',prec:'número',v3:1};invalidate();save();renderMap.fitted=false;await recalc();notify('📍 '+(st.cliente||'Entrega')+' posicionada pelo Google Maps');return}
