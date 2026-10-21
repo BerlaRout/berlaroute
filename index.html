@@ -32,11 +32,16 @@ main{padding:12px 12px 90px;max-width:640px;margin:0 auto}
 .links{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
 .links a{flex:1;text-align:center;padding:10px;border-radius:8px;background:#eef2f0;color:var(--tx);text-decoration:none;font-size:14px;font-weight:600}
 .obsof{background:#fff7ed;border-left:3px solid var(--warn);padding:8px;font-size:14px;border-radius:4px;margin:8px 0}
-label.foto{display:flex;align-items:center;gap:10px;border:2px dashed var(--ln);border-radius:10px;padding:10px;margin:8px 0;cursor:pointer;font-weight:600}
-label.foto.done{border-color:#16a34a;border-style:solid;background:#f0fdf4}
-label.foto img{width:56px;height:56px;object-fit:cover;border-radius:6px;display:none}
-label.foto.done img{display:block}
-label.foto input{display:none}
+div.foto{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;border:2px dashed var(--ln);border-radius:10px;padding:10px;margin:8px 0;font-weight:600}
+div.foto.done{border-color:#16a34a;border-style:solid;background:#f0fdf4}
+div.foto img{width:56px;height:56px;object-fit:cover;border-radius:6px;display:none;grid-row:span 2}
+div.foto.done img{display:block}
+div.foto .fnm{grid-column:auto}
+div.foto:not(.done) .fnm,div.foto:not(.done) .fbt{grid-column:1/-1}
+.fbt{display:flex;gap:8px}
+.fb{flex:1;text-align:center;padding:12px 6px;border-radius:9px;background:#eef4f0;border:1px solid var(--ln);cursor:pointer;font-weight:700}
+.fb.cam{background:#16a34a;color:#fff;border-color:#16a34a}
+.fb input{display:none}
 textarea,select{width:100%;font:inherit;padding:10px;border:1px solid var(--ln);border-radius:8px;margin:6px 0}
 textarea{min-height:64px}
 .btns{display:flex;gap:8px;margin-top:8px}
@@ -110,7 +115,7 @@ function render(){
   var fq=fila.filter(function(it){return it.parada===p.id}).reduce(function(a,it){return a+it.fotos.filter(function(x){return !x.subiu}).length},0);
   var falta=['caixas','os'].filter(function(t){return !fok[t]});
   if(e.status&&!e.pendente){corpo='<div class="feito'+(e.status==='fracassada'?' fail':'')+'">'+(e.status==='entregue'?'✅ Baixa enviada às '+hora(e.quando):'❌ Fracassada às '+hora(e.quando))+(e.obs?'<br><span class="small">'+esc(e.obs)+'</span>':'')+'</div>'+
-   (e.status==='entregue'&&falta.length?'<div class="obsof"><b>Faltam fotos:</b> '+falta.map(nomeFoto).join(' e ')+'. Envie agora ou mais tarde — pode ser da galeria.</div>'+falta.map(function(t){return seletorFoto(p.id,t,f,fok)}).join('')+(falta.some(function(t){return f[t]})?'<button class="b-ok" style="width:100%" data-envfoto="'+p.id+'">📤 Enviar foto(s)</button>':''):'')+
+   (e.status==='entregue'&&falta.length?'<div class="obsof"><b>Faltam fotos:</b> '+falta.map(nomeFoto).join(' e ')+'. Toque em 📸 Câmera ou 🖼️ Galeria — a foto é enviada sozinha.</div>'+falta.map(function(t){return seletorFoto(p.id,t,f,fok)}).join('')+(falta.some(function(t){return f[t]})?'<button class="b-ok" style="width:100%" data-envfoto="'+p.id+'">📤 Enviar foto(s)</button>':''):'')+
    (fq?'<p class="small">📤 '+fq+' foto(s) salvas no celular, aguardando sinal para enviar…</p>':'')+
    '<button class="b-chg" data-refazer="'+p.id+'">Corrigir esta baixa</button>'}
   else if(e.pendente){corpo='<div class="feito">⏳ Baixa salva no celular'+(e.quando?' às '+hora(e.quando):'')+'. Ela é enviada sozinha assim que tiver sinal — pode seguir para a próxima entrega.</div>'}
@@ -156,14 +161,28 @@ function encerrarRoteiro(pend){if(gpsOcup||!rota||!rota.inicio||rota.fim)return;
  gpsOcup=true;render();lerPos().then(function(p){return rpc('encerrar_rota',{p_id:TOKEN,p_lat:p?p.lat:null,p_lng:p?p.lng:null,p_prec:p?p.prec:null})}).then(function(r){rota.fim=r.fim;rota.inicio=r.inicio;gpsOcup=false;desligarGps();render();toast(auto?'🏁 Última entrega concluída — roteiro finalizado às '+hora(r.fim)+'. Obrigado!':'🏁 Roteiro encerrado às '+hora(r.fim)+'. Obrigado!')}).catch(function(e){gpsOcup=false;render();toast('Não consegui encerrar: '+e.message,true)})}
 document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible'&&rota&&rota.inicio&&!rota.fim){desligarGps();ligarGps();lerPos().then(function(){enviarPos(true);render()})}});
 function nomeFoto(t){return t==='os'?'OS assinada':t==='caixas'?'caixas':'foto'}
-function seletorFoto(pid,tipo,f,fok){var sel=f[tipo],ok=fok[tipo];return '<label class="foto'+(sel||ok?' done':'')+'"><input type="file" accept="image/*" data-foto="'+pid+'|'+tipo+'"><img src="'+(sel?sel.url:'')+'"><span>📷 Foto '+(tipo==='os'?'da OS assinada':'das caixas no local')+(ok&&!sel?' — já enviada ✓':sel?' ✓':'')+'<br><small style="font-weight:400;color:#5d6b64">toque para usar a câmera ou escolher da galeria</small></span></label>'}
+function seletorFoto(pid,tipo,f,fok){var sel=f[tipo],ok=fok[tipo],nm=tipo==='os'?'da OS assinada':'das caixas no local';
+ return '<div class="foto'+(sel||ok?' done':'')+'"><img src="'+(sel?sel.url:'')+'"><div class="fnm">📷 Foto '+nm+(ok&&!sel?' — já enviada ✓':sel?' ✓':'')+'</div><div class="fbt"><label class="fb cam"><input type="file" accept="image/*" capture="environment" data-foto="'+pid+'|'+tipo+'">📸 Câmera</label><label class="fb gal"><input type="file" accept="image/*" data-foto="'+pid+'|'+tipo+'">🖼️ Galeria</label></div></div>'}
 function aplicarBaixas(bs){(bs||[]).forEach(function(b){var e=estado[b.parada_id]=estado[b.parada_id]||{};e.fotosOk=e.fotosOk||{};(b.fotos||[]).forEach(function(x){if(x&&x.tipo)e.fotosOk[x.tipo]=true});
- if(b.status==='chegada')e.chegada=b.criado_em;else if(b.status==='foto'){}else if(!e.pendente){e.status=b.status;e.quando=b.criado_em;e.obs=b.obs}})}
-function lerImagem(file){if(window.createImageBitmap)return createImageBitmap(file).catch(function(){return carregarImg(file)});return carregarImg(file)}
-function carregarImg(file){return new Promise(function(ok,er){var img=new Image(),u=URL.createObjectURL(file);img.onload=function(){ok(img)};img.onerror=function(){er(new Error('img'))};img.src=u})}
-function reduzir(file){return lerImagem(file).then(function(img){var M=1280,w=img.width,h=img.height,k=Math.min(1,M/Math.max(w,h));var c=document.createElement('canvas');c.width=Math.max(1,Math.round(w*k));c.height=Math.max(1,Math.round(h*k));c.getContext('2d').drawImage(img,0,0,c.width,c.height);
- return new Promise(function(ok,er){c.toBlob(function(b){b?ok(b):er(new Error('foto'))},'image/jpeg',0.7)})}).catch(function(){
- if(/^image\/(jpeg|png|webp)$/.test(file.type)&&file.size<6000000)return file;throw new Error('Não consegui ler essa foto. Tente tirar de novo pela câmera.')})}
+ if(b.status==='chegada')e.chegada=b.criado_em;else if(b.status==='desfeita'){delete e.chegada;if(!e.pendente){delete e.status;delete e.quando;delete e.obs}}else if(b.status==='foto'){}else if(!e.pendente){e.status=b.status;e.quando=b.criado_em;e.obs=b.obs}})}
+function lerImagem(file){var M=1600;
+ function viaImg(){return comTempo(new Promise(function(ok,er){var img=new Image(),u=URL.createObjectURL(file);img.onload=function(){ok(img)};img.onerror=function(){er(new Error('img'))};img.src=u}),25000)}
+ if(!window.createImageBitmap)return viaImg();
+ // decodifica já reduzida (fotos de 50–108 MP do Samsung estouram a memória se abrir inteira)
+ return comTempo(createImageBitmap(file,{resizeWidth:M,resizeQuality:'medium',imageOrientation:'from-image'}),25000)
+  .catch(function(){return comTempo(createImageBitmap(file),25000)}).catch(viaImg)}
+function tipoArq(file,cab){var t=(file.type||'').toLowerCase();if(t)return t;var n=(file.name||'').toLowerCase();
+ if(/\.hei[cf]$/.test(n)||/ftyp(heic|heix|hevc|mif1|msf1)/.test(cab))return 'image/heic';if(/\.png$/.test(n))return 'image/png';if(/\.webp$/.test(n))return 'image/webp';return 'image/jpeg'}
+function reduzir(file){
+ if(!file||!file.size)return Promise.reject(new Error('Essa foto não abriu (pode estar só na nuvem). Toque em 📸 Câmera e tire a foto na hora.'));
+ var cab='';
+ return comTempo(file.slice(0,32).arrayBuffer(),15000).then(function(b){cab=String.fromCharCode.apply(null,new Uint8Array(b))},function(){throw new Error('Essa foto não abriu (pode estar só na nuvem). Toque em 📸 Câmera e tire a foto na hora.')})
+ .then(function(){return lerImagem(file).then(function(img){var M=1280,w=img.width,h=img.height,k=Math.min(1,M/Math.max(w,h));var c=document.createElement('canvas');c.width=Math.max(1,Math.round(w*k));c.height=Math.max(1,Math.round(h*k));c.getContext('2d').drawImage(img,0,0,c.width,c.height);try{img.close&&img.close()}catch(e){}
+  return new Promise(function(ok,er){c.toBlob(function(b){b&&b.size>1000?ok(b):er(new Error('foto'))},'image/jpeg',0.7)})}).catch(function(e){
+  if(e&&/nuvem/.test(e.message))throw e;
+  // não deu para reduzir: manda a foto original mesmo (até 20 MB) — nunca trava a baixa
+  if(file.size<=20000000){var t=tipoArq(file,cab);try{return new File([file],'foto',{type:t})}catch(x){return file.slice(0,file.size,t)}}
+  throw new Error('Foto muito grande ('+Math.round(file.size/1048576)+' MB). Toque em 📸 Câmera e tire a foto na hora.')})})}
 function gps(){return new Promise(function(ok){if(!navigator.geolocation)return ok(null);var t=setTimeout(function(){ok(null)},6000);navigator.geolocation.getCurrentPosition(function(p){clearTimeout(t);ok({lat:p.coords.latitude,lng:p.coords.longitude})},function(){clearTimeout(t);ok(null)},{enableHighAccuracy:true,timeout:6000,maximumAge:60000})})}
 function comTempo(pr,ms){return Promise.race([pr,new Promise(function(_,no){setTimeout(function(){no(new Error('tempo esgotado'))},ms)})])}
 function subir(blob,path){return fetch(CFG.url+'/storage/v1/object/baixas/'+path,{method:'POST',headers:{'apikey':CFG.key,'Authorization':'Bearer '+CFG.key,'Content-Type':blob.type||'image/jpeg'},body:blob}).then(function(r){if(!r.ok&&r.status!==409)return r.text().then(function(t){throw new Error('falha ao enviar foto ('+r.status+')')})})}
@@ -229,8 +248,11 @@ document.addEventListener('touchstart',function(){if(rota&&rota.inicio&&!rota.fi
 document.addEventListener('input',function(ev){var t=ev.target;if(t.dataset.obs){var f=fotos[t.dataset.obs]=fotos[t.dataset.obs]||{};f.obs=t.value}});
 document.addEventListener('change',function(ev){var t=ev.target;
  if(t.dataset.motivo){var f=fotos[t.dataset.motivo]=fotos[t.dataset.motivo]||{};f.motivo=t.value;return}
- if(t.dataset.foto&&t.files&&t.files[0]){var pr=t.dataset.foto.split('|'),pid=pr[0],tipo=pr[1];toast('Preparando foto…');
-  reduzir(t.files[0]).then(function(b){var f=fotos[pid]=fotos[pid]||{};var ext=b.type==='image/png'?'png':b.type==='image/webp'?'webp':'jpg';f[tipo]={blob:b,url:URL.createObjectURL(b),path:TOKEN+'/'+pid+'/'+tipo+'_'+uid()+'.'+ext};render();toast('Foto pronta ✓')}).catch(function(e){toast(e.message,true)})}
+ if(t.dataset.foto&&t.files&&t.files[0]){var pr=t.dataset.foto.split('|'),pid=pr[0],tipo=pr[1],arq=t.files[0];toast('Preparando foto…');
+  reduzir(arq).then(function(b){try{t.value=''}catch(x){}var f=fotos[pid]=fotos[pid]||{};var ty=b.type||'image/jpeg';var ext=/png/.test(ty)?'png':/webp/.test(ty)?'webp':/hei[cf]/.test(ty)?'heic':'jpg';
+   var it={blob:b,url:URL.createObjectURL(b),path:TOKEN+'/'+pid+'/'+tipo+'_'+uid()+'.'+ext};var e=estado[pid]||{};
+   if(e.status){enfileirar(pid,'foto',null,[{tipo:tipo,blob:it.blob,path:it.path}]);toast('Foto salva ✓ — enviando…')}  // baixa já feita: envia na hora, sem botão extra
+   else{f[tipo]=it;render();toast('Foto pronta ✓')}}).catch(function(e){try{t.value=''}catch(x){}toast(e.message,true)})}
 });
 window.addEventListener('beforeunload',function(e){if(fila.length&&!IDB){e.preventDefault();e.returnValue='Ainda há baixa sendo enviada.'}});
 carregar();
