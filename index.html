@@ -116,7 +116,7 @@ function render(){
   var falta=['caixas','os'].filter(function(t){return !fok[t]});
   if(e.status&&!e.pendente){corpo='<div class="feito'+(e.status==='fracassada'?' fail':'')+'">'+(e.status==='entregue'?'✅ Baixa enviada às '+hora(e.quando):'❌ Fracassada às '+hora(e.quando))+(e.obs?'<br><span class="small">'+esc(e.obs)+'</span>':'')+'</div>'+
    (e.status==='entregue'&&falta.length?'<div class="obsof"><b>Faltam fotos:</b> '+falta.map(nomeFoto).join(' e ')+'. Toque em 📸 Câmera ou 🖼️ Galeria — a foto é enviada sozinha.</div>'+falta.map(function(t){return seletorFoto(p.id,t,f,fok)}).join('')+(falta.some(function(t){return f[t]})?'<button class="b-ok" style="width:100%" data-envfoto="'+p.id+'">📤 Enviar foto(s)</button>':''):'')+
-   (fq?'<p class="small">📤 '+fq+' foto(s) salvas no celular, aguardando sinal para enviar…</p>':'')+
+   (fq?'<p class="small">📤 '+fq+' foto(s) salvas no celular, enviando…'+(ultimoErro?'<br><span style="color:#b45309">Última tentativa: '+esc(ultimoErro)+' — tento de novo sozinho.</span>':'')+'</p>':'')+(fotoErro[p.id]?'<p class="small" style="color:#b91c1c;font-weight:600">⚠ '+esc(fotoErro[p.id])+'</p>':'')+
    '<button class="b-chg" data-refazer="'+p.id+'">Corrigir esta baixa</button>'}
   else if(e.pendente){corpo='<div class="feito">⏳ Baixa salva no celular'+(e.quando?' às '+hora(e.quando):'')+'. Ela é enviada sozinha assim que tiver sinal — pode seguir para a próxima entrega.</div>'}
   else{
@@ -165,27 +165,34 @@ function seletorFoto(pid,tipo,f,fok){var sel=f[tipo],ok=fok[tipo],nm=tipo==='os'
  return '<div class="foto'+(sel||ok?' done':'')+'"><img src="'+(sel?sel.url:'')+'"><div class="fnm">📷 Foto '+nm+(ok&&!sel?' — já enviada ✓':sel?' ✓':'')+'</div><div class="fbt"><label class="fb cam"><input type="file" accept="image/*" capture="environment" data-foto="'+pid+'|'+tipo+'">📸 Câmera</label><label class="fb gal"><input type="file" accept="image/*" data-foto="'+pid+'|'+tipo+'">🖼️ Galeria</label></div></div>'}
 function aplicarBaixas(bs){(bs||[]).forEach(function(b){var e=estado[b.parada_id]=estado[b.parada_id]||{};e.fotosOk=e.fotosOk||{};(b.fotos||[]).forEach(function(x){if(x&&x.tipo)e.fotosOk[x.tipo]=true});
  if(b.status==='chegada')e.chegada=b.criado_em;else if(b.status==='desfeita'){delete e.chegada;if(!e.pendente){delete e.status;delete e.quando;delete e.obs}}else if(b.status==='foto'){}else if(!e.pendente){e.status=b.status;e.quando=b.criado_em;e.obs=b.obs}})}
-function lerImagem(file){var M=1600;
+function lerImagem(file,M){M=M||1600;
  function viaImg(){return comTempo(new Promise(function(ok,er){var img=new Image(),u=URL.createObjectURL(file);img.onload=function(){ok(img)};img.onerror=function(){er(new Error('img'))};img.src=u}),25000)}
  if(!window.createImageBitmap)return viaImg();
  // decodifica já reduzida (fotos de 50–108 MP do Samsung estouram a memória se abrir inteira)
  return comTempo(createImageBitmap(file,{resizeWidth:M,resizeQuality:'medium',imageOrientation:'from-image'}),25000)
-  .catch(function(){return comTempo(createImageBitmap(file),25000)}).catch(viaImg)}
+  .catch(function(){return comTempo(createImageBitmap(file,{resizeWidth:800,resizeQuality:'low',imageOrientation:'from-image'}),25000)})
+  .catch(viaImg).catch(function(){return comTempo(createImageBitmap(file),25000)})}
 function tipoArq(file,cab){var t=(file.type||'').toLowerCase();if(t)return t;var n=(file.name||'').toLowerCase();
  if(/\.hei[cf]$/.test(n)||/ftyp(heic|heix|hevc|mif1|msf1)/.test(cab))return 'image/heic';if(/\.png$/.test(n))return 'image/png';if(/\.webp$/.test(n))return 'image/webp';return 'image/jpeg'}
 function reduzir(file){
  if(!file||!file.size)return Promise.reject(new Error('Essa foto não abriu (pode estar só na nuvem). Toque em 📸 Câmera e tire a foto na hora.'));
  var cab='';
  return comTempo(file.slice(0,32).arrayBuffer(),15000).then(function(b){cab=String.fromCharCode.apply(null,new Uint8Array(b))},function(){throw new Error('Essa foto não abriu (pode estar só na nuvem). Toque em 📸 Câmera e tire a foto na hora.')})
- .then(function(){return lerImagem(file).then(function(img){var M=1280,w=img.width,h=img.height,k=Math.min(1,M/Math.max(w,h));var c=document.createElement('canvas');c.width=Math.max(1,Math.round(w*k));c.height=Math.max(1,Math.round(h*k));c.getContext('2d').drawImage(img,0,0,c.width,c.height);try{img.close&&img.close()}catch(e){}
-  return new Promise(function(ok,er){c.toBlob(function(b){b&&b.size>1000?ok(b):er(new Error('foto'))},'image/jpeg',0.7)})}).catch(function(e){
+ .then(function(){return lerImagem(file,1280).then(function(img){var M=1024,w=img.width,h=img.height,k=Math.min(1,M/Math.max(w,h));var c=document.createElement('canvas');c.width=Math.max(1,Math.round(w*k));c.height=Math.max(1,Math.round(h*k));c.getContext('2d').drawImage(img,0,0,c.width,c.height);try{img.close&&img.close()}catch(e){}
+  return new Promise(function(ok,er){c.toBlob(function(b){b&&b.size>1000?ok(b):er(new Error('foto'))},'image/jpeg',0.65)})}).catch(function(e){
   if(e&&/nuvem/.test(e.message))throw e;
   // não deu para reduzir: manda a foto original mesmo (até 20 MB) — nunca trava a baixa
   if(file.size<=20000000){var t=tipoArq(file,cab);try{return new File([file],'foto',{type:t})}catch(x){return file.slice(0,file.size,t)}}
   throw new Error('Foto muito grande ('+Math.round(file.size/1048576)+' MB). Toque em 📸 Câmera e tire a foto na hora.')})})}
 function gps(){return new Promise(function(ok){if(!navigator.geolocation)return ok(null);var t=setTimeout(function(){ok(null)},6000);navigator.geolocation.getCurrentPosition(function(p){clearTimeout(t);ok({lat:p.coords.latitude,lng:p.coords.longitude})},function(){clearTimeout(t);ok(null)},{enableHighAccuracy:true,timeout:6000,maximumAge:60000})})}
 function comTempo(pr,ms){return Promise.race([pr,new Promise(function(_,no){setTimeout(function(){no(new Error('tempo esgotado'))},ms)})])}
-function subir(blob,path){return fetch(CFG.url+'/storage/v1/object/baixas/'+path,{method:'POST',headers:{'apikey':CFG.key,'Authorization':'Bearer '+CFG.key,'Content-Type':blob.type||'image/jpeg'},body:blob}).then(function(r){if(!r.ok&&r.status!==409)return r.text().then(function(t){throw new Error('falha ao enviar foto ('+r.status+')')})})}
+function subir(blob,path){return fetch(CFG.url+'/storage/v1/object/baixas/'+path,{method:'POST',headers:{'apikey':CFG.key,'Authorization':'Bearer '+CFG.key,'Content-Type':blob.type||'image/jpeg'},body:blob}).then(function(r){if(!r.ok&&r.status!==409)return r.text().then(function(t){var j=null;try{j=JSON.parse(t)}catch(e){}var m=(j&&(j.message||j.error))||t||'';var er=new Error('servidor recusou a foto ('+r.status+(m?': '+String(m).slice(0,80):'')+')');er.recusada=r.status>=400&&r.status<500;throw er})})}
+/* foto recusada pelo servidor (tamanho/formato): reduz mais forte e tenta de novo */
+function reduzirForte(blob){return lerImagem(blob,1024).then(function(img){var k=Math.min(1,1024/Math.max(img.width,img.height));var c=document.createElement('canvas');c.width=Math.max(1,Math.round(img.width*k));c.height=Math.max(1,Math.round(img.height*k));c.getContext('2d').drawImage(img,0,0,c.width,c.height);return new Promise(function(ok,er){c.toBlob(function(b){b&&b.size>1000?ok(b):er(new Error('foto'))},'image/jpeg',0.6)})})}
+function subirFoto(x){return comTempo(subir(x.blob,x.path),60000).then(function(){x.subiu=true;delete x.erro},function(e){
+  if(e&&e.recusada&&!x.forte){x.forte=1;return reduzirForte(x.blob).then(function(b){x.blob=b;x.path=x.path.replace(/\.[a-z]+$/,'.jpg');return comTempo(subir(b,x.path),60000).then(function(){x.subiu=true;delete x.erro})}).catch(function(e2){x.erro=String(e2&&e2.recusada?e2.message:e.message);x.recusada=!!(e2&&e2.recusada)||!!e.recusada})}
+  if(!x.forte&&x.blob&&x.blob.size>250000){x.forte=1;return reduzirForte(x.blob).then(function(b){x.blob=b;x.path=x.path.replace(/\.[a-z]+$/,'.jpg')}).catch(function(){}).then(function(){x.erro=String(e&&e.message||e)})}
+  x.erro=String(e&&e.message||e);x.recusada=!!(e&&e.recusada)})}
 /* fila guardada no celular (IndexedDB): nada se perde se fechar a página ou ficar sem sinal */
 var IDB=null;function idb(){return new Promise(function(ok){if(IDB)return ok(IDB);try{var r=indexedDB.open('berlaroute_fila',1);r.onupgradeneeded=function(){r.result.createObjectStore('fila',{keyPath:'k'})};r.onsuccess=function(){IDB=r.result;ok(IDB)};r.onerror=function(){ok(null)}}catch(e){ok(null)}})}
 function filaPut(it){return idb().then(function(db){if(!db)return;return new Promise(function(ok){try{var t=db.transaction('fila','readwrite');t.objectStore('fila').put({k:it.k,token:it.token,parada:it.parada,status:it.status,obs:it.obs,pos:it.pos,quando:it.quando,fotos:it.fotos.map(function(x){return{tipo:x.tipo,blob:x.blob,path:x.path,subiu:!!x.subiu}})});t.oncomplete=ok;t.onerror=ok}catch(e){ok()}})})}
@@ -194,15 +201,22 @@ function carregarFilaSalva(){idb().then(function(db){if(!db)return;try{var rq=db
  its.forEach(function(it){fila.push(it);if(it.status==='entregue'||it.status==='fracassada'){var e=estado[it.parada]=estado[it.parada]||{};if(!e.status){e.pendente=true;e.status=it.status;e.quando=it.quando;e.obs=it.obs}}});if(its.length){render();processarFila()}}}catch(e){}})}
 var retryT=null;function agendarRetry(){clearTimeout(retryT);retryT=setTimeout(processarFila,20000)}
 window.addEventListener('online',function(){setTimeout(processarFila,1500)});
+var fotoErro={},ultimoErro='';
 function processarFila(){
  if(enviando||!fila.length)return;enviando=true;clearTimeout(retryT);var it=fila[0];
  var pend=it.fotos.filter(function(x){return !x.subiu});
- Promise.all(pend.map(function(x){return comTempo(subir(x.blob,x.path),45000).then(function(){x.subiu=true},function(){})})).then(function(){
+ pend.reduce(function(pr,x){return pr.then(function(){return subirFoto(x)})},Promise.resolve()).then(function(){
+  // foto que o servidor recusou mesmo reduzida: tira da fila e avisa (não fica "aguardando sinal" para sempre)
+  var rec=it.fotos.filter(function(x){return !x.subiu&&x.recusada});
+  if(rec.length){it.fotos=it.fotos.filter(function(x){return x.subiu||!x.recusada});fotoErro[it.parada]='A foto '+rec.map(function(x){return nomeFoto(x.tipo)}).join(' e ')+' não foi aceita: '+rec[0].erro+'. Tire de novo pelo 📸 Câmera.';toast(fotoErro[it.parada],true)}
+  var ne=it.fotos.find(function(x){return !x.subiu&&x.erro});ultimoErro=ne?ne.erro:'';
   if(pend.length)filaPut(it);
+  if(it.status==='foto'&&!it.fotos.length){fila.shift();filaDel(it.k);enviando=false;render();setTimeout(processarFila,300);return null}
   var ok=it.fotos.filter(function(x){return x.subiu}),nok=it.fotos.filter(function(x){return !x.subiu});
   if(it.status==='foto'&&!ok.length)throw new Error('rede');
   return rpc('registrar_baixa',{p_id:TOKEN,p_parada:it.parada,p_status:it.status,p_obs:it.obs||null,p_fotos:ok.map(function(x){return{tipo:x.tipo,path:x.path}}),p_lat:it.pos?it.pos.lat:null,p_lng:it.pos?it.pos.lng:null,p_quando:it.quando||null}).then(function(res){return{res:res||{},ok:ok,nok:nok}})
  }).then(function(x){
+  if(!x)return;delete fotoErro[it.parada];ultimoErro='';
   fila.shift();filaDel(it.k);enviando=false;var e=estado[it.parada]=estado[it.parada]||{};e.fotosOk=e.fotosOk||{};x.ok.forEach(function(f){e.fotosOk[f.tipo]=true});
   var qd=x.res.quando||x.res.criado_em||it.quando;
   if(it.status==='chegada'){e.chegada=qd;toast('📍 Chegada registrada')}
