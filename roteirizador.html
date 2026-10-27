@@ -127,6 +127,8 @@ button.tgl.al{background:rgba(220,38,38,.12);color:var(--bad);border-color:var(-
 #netInfo{display:flex;gap:8px;align-items:center;font-size:12px}#netInfo:empty{display:none}#netSync{color:#d1fae5}
 #netBanner{display:none;background:#b45309;color:#fff;padding:6px 14px;font-size:13px;gap:10px;align-items:center;flex-wrap:wrap}
 body.somenteLeitura #netBanner{display:flex}
+#alertaPrev{background:#b91c1c;color:#fff;padding:7px 14px;font-size:13px;line-height:1.5}
+.pv-ok{color:#16a34a;font-weight:600}.pv-tol{color:#ca8a04;font-weight:600}.pv-atr{color:#dc2626;font-weight:700}.pv-cinza{color:#64748b;font-weight:600}
 body.somenteLeitura #bImport,body.somenteLeitura #bAdd,body.somenteLeitura #bGeo,body.somenteLeitura #bOpt{display:none}
 body.somenteLeitura :is(#peTab input,#peTab select,#peTab textarea,#peTab button:not(.bxed),#peCopy){pointer-events:none;opacity:.45}
 .bxSit{display:flex;gap:8px;margin:8px 0 12px;flex-wrap:wrap}.bxSit label{flex:1;min-width:120px;border:2px solid var(--line,#d1d5db);border-radius:9px;padding:9px;text-align:center;cursor:pointer;font-weight:600}.bxSit label:has(input:checked){border-color:#16a34a;background:#f0fdf4}.bxSit label.failed:has(input:checked){border-color:#b91c1c;background:#fef2f2}.bxSit label.pending:has(input:checked){border-color:#b45309;background:#fffbeb}.bxSit input{margin-right:4px}
@@ -164,6 +166,7 @@ body.modoCel header{gap:6px;padding:8px 10px}body.modoCel header .brand{font-siz
  <button id="bDash" class="sm" title="Indicadores: hoje ao vivo, histórico e ranking de motoristas">📊 Dashboard</button>
  <button id="bModo" class="sm" style="display:none" title="Alternar entre a versão completa e o modo acompanhamento (celular)">📱 Acompanhar</button>
 </header>
+<div id="alertaPrev" style="display:none"></div>
 <div id="dash"><div class="dhead"><b>📊 Dashboard BerlaRoute</b><div class="dtabs"><button data-daba="hoje">Hoje ao vivo</button><button data-daba="hist">Histórico</button><button data-daba="rank">Ranking de motoristas</button></div><span class="spacer"></span><button class="sm" data-drel="1" title="Recarregar dados">↻</button><button class="sm" data-dfechar="1">✕ Fechar</button></div><div id="dashFiltro" class="dfiltro"></div><div id="dashBody"></div></div>
 <div id="celBar"><b class="small">📱 Acompanhamento</b><span id="celResumo" class="small muted"></span><span class="spacer"></span><button class="sm" id="bCelAtualizar">↻ Atualizar</button></div>
 <main>
@@ -1012,8 +1015,49 @@ function criarRoteiro2(pid){const p=vById(pid);if(!p)return;const kids=state.veh
  notify(`Roteiro ${n} criado para ${p.motorista||p.nome}, saindo às ${fmtHM(c.ini)}. Clique em ③ Otimizar rotas para distribuir as entregas.`);}
 const rotLabel=v=>(v.motorista||(v.externo?'Motorista externo':v.nome))+(v.parentId?` – Roteiro ${v.roteiroN}`:(state.vehicles.some(x=>x.parentId===v.id)?' – Roteiro 1':''));
 function moveOpts(cur){return `<option value="${cur||''}">Mover para…</option>`+state.vehicles.filter(v=>v.id!==cur).map(v=>`<option value="${v.id}">${esc(rotLabel(v))}${v.ativo?'':' (não aprovado)'}</option>`).join('')+(cur?'<option value="">— tirar da rota —</option>':'')}
+/* ---------- previsão de chegada: recalculada a cada baixa (só para escritório) ---------- */
+const FAIXAS_H=[[0,360],[360,540],[540,720],[720,960],[960,1140],[1140,1440]];
+const faixaDe=m=>{m=((m%1440)+1440)%1440;return FAIXAS_H.findIndex(([a,b])=>m>=a&&m<b)};
+function registrarAmostras(vid){const sim=sims[vid];if(!sim||!M)return;const P=plan(),B=P.baixa||{},f=cfg().fatorTransito||1;state.amostrasLeg=state.amostrasLeg||{};let novo=false;
+ for(let i=1;i<sim.stops.length;i++){const a=B[sim.stops[i-1].id],b=B[sim.stops[i].id];if(!a||!b||!(a.est==='completed'||a.est==='failed'))continue;
+  const sai=parseHM(a.co),che=parseHM(b.ci);if(sai==null||che==null)continue;const real=che-sai,ia=matIdx[sim.stops[i-1].id],ib=matIdx[sim.stops[i].id];if(ia==null||ib==null)continue;
+  const prev=M.dur[ia][ib]*f;if(real<1||real>240||prev<1)continue;const k=P.data+'|'+sim.stops[i-1].id+'|'+sim.stops[i].id;
+  if(!state.amostrasLeg[k]){state.amostrasLeg[k]={h:faixaDe(sai),p:Math.round(prev*10)/10,r:real};novo=true}}
+ if(novo){const ks=Object.keys(state.amostrasLeg);if(ks.length>3000)ks.sort().slice(0,ks.length-3000).forEach(k=>delete state.amostrasLeg[k]);fatorHistorico.c=null}}
+/* aprende com o histórico: tempo real ÷ tempo previsto do trajeto, por faixa de horário (mín. 5 amostras) */
+function fatorHistorico(){if(fatorHistorico.c)return fatorHistorico.c;const acc=FAIXAS_H.map(()=>({p:0,r:0,n:0}));
+ for(const a of Object.values(state.amostrasLeg||{})){const x=acc[a.h];if(!x)continue;x.p+=a.p;x.r+=a.r;x.n++}
+ return fatorHistorico.c=acc.map(x=>x.n>=5?Math.min(2,Math.max(0.6,x.r/x.p)):1)}
+function previsaoRota(vid){const sim=sims[vid];if(!sim||!M)return null;const P=plan(),B=P.baixa||{},c=cfg(),f=c.fatorTransito||1,S=stopsById(),tol=tolOTIF();
+ const hoje=P.data===isoHoje(),d=new Date(),agora=d.getHours()*60+d.getMinutes();
+ const feita=b=>b&&(b.est==='completed'||b.est==='failed')&&parseHM(b.co)!=null;
+ let ult=-1;sim.stops.forEach((st,i)=>{if(feita(B[st.id]))ult=i});
+ const temCheg=sim.stops.some(st=>{const b=B[st.id];return b&&b.ci&&!feita(b)});
+ if(ult<0&&!temCheg)return null;
+ try{registrarAmostras(vid)}catch(e){}
+ const FH=fatorHistorico(),out={};let t=null,prev=0,piso=hoje;
+ sim.stops.forEach((st,i)=>{const s=S[st.id],j=matIdx[st.id],b=B[st.id]||{},serv=servDe(s);
+  if(feita(b)){t=parseHM(b.co);prev=j;out[st.id]={st:'feita'};return}
+  if(i<ult){out[st.id]={st:'pulada'};return}
+  if(b.ci&&parseHM(b.ci)!=null){const ci=parseHM(b.ci);out[st.id]={st:'nolocal',eta:ci};t=Math.max(ci,s.jIni!=null?s.jIni:ci)+serv;if(hoje)t=Math.max(t,agora);prev=j;piso=false;return}
+  if(t==null||j==null)return;
+  let eta=t+M.dur[prev][j]*f*(FH[faixaDe(t)]||1);if(piso&&eta<agora)eta=agora;piso=false;
+  const je=jEnd(s,c);const r={eta,espera:0,atraso:0};
+  if(s.jIni!=null&&eta<s.jIni){r.st='espera';r.espera=s.jIni-eta}else if(je==null||eta<=je)r.st='ok';else if(eta<=je+tol)r.st='tol';else{r.st='atraso';r.atraso=eta-je}
+  out[st.id]=r;t=Math.max(eta,s.jIni!=null?s.jIni:eta)+serv;prev=j});
+ return out}
+const fmtDur=m=>{m=Math.round(m);return m>=60?Math.floor(m/60)+'h'+String(m%60).padStart(2,'0'):m+' min'};
+function htmlPrev(pv){if(!pv||(pv.eta==null&&pv.st!=='pulada'))return'';
+ if(pv.st==='pulada')return'<br><span class="small pv pv-cinza">⏳ ainda pendente — o motorista já fez entregas seguintes</span>';
+ const L={nolocal:['pv-cinza','no local desde '+fmtHM(pv.eta)],espera:['pv-cinza','chega ~'+fmtHM(pv.eta)+' · espera '+fmtDur(pv.espera)+' até a janela'],ok:['pv-ok','chega ~'+fmtHM(pv.eta)+' · no horário'],tol:['pv-tol','chega ~'+fmtHM(pv.eta)+' · na tolerância'],atraso:['pv-atr','chega ~'+fmtHM(pv.eta)+' · atraso de '+fmtDur(pv.atraso)]}[pv.st];
+ return L?`<br><span class="small pv ${L[0]}" title="Previsão recalculada a partir da última baixa">🕒 ${L[1]}</span>`:''}
+function atrasosPrevistos(){const r=[];const S=stopsById();for(const v of state.vehicles){const pv=previsaoRota(v.id);if(!pv)continue;const sim=sims[v.id];
+ const at=sim.stops.filter(st=>pv[st.id]&&pv[st.id].st==='atraso').map(st=>({cli:S[st.id].cliente||'',eta:pv[st.id].eta,atr:pv[st.id].atraso}));if(at.length)r.push({v,at})}return r}
+function renderAlertaPrev(){const el=$('#alertaPrev');if(!el)return;const A=atrasosPrevistos();
+ if(!A.length){el.style.display='none';el.innerHTML='';return}
+ el.style.display='block';el.innerHTML='⚠ <b>Previsão de atraso:</b> '+A.map(x=>`<b>${esc(x.v.motorista||x.v.nome)}</b> — `+x.at.map(a=>`${esc(a.cli)} ~${fmtHM(a.eta)} (+${fmtDur(a.atr)})`).join(', ')).join(' · ')}
 function renderRoutes(){
- const S=stopsById();let h='';
+ const S=stopsById();let h='';const PVS={};try{for(const v of state.vehicles)PVS[v.id]=previsaoRota(v.id)}catch(e){}
  let totKm=0,totCusto=0,nR=0;const cards={};
  state.vehicles.forEach((v,vi)=>{
   const sim=sims[v.id];if(!sim)return;
@@ -1026,10 +1070,10 @@ function renderRoutes(){
   if(v.parentId&&sims[v.parentId]&&sim.saida<sims[v.parentId].voltaSede)alerts.push(`o Roteiro anterior só volta à sede às ${fmtHM(sims[v.parentId].voltaSede)} — este roteiro sai às ${fmtHM(sim.saida)}`);
   if(sim.capExc)alerts.push(`volume ${sim.vol} acima da capacidade (${v.cap})`);
   cards[v.id]=`<div class="card" data-drop="${v.id}" style="--c:${c}"><h3><span class="dot" style="background:${c}"></span>${esc(rotLabel(v))} <span class="muted small" style="font-weight:400">${esc(v.nome)} · ${esc(v.nivel||'')}${v.valorSaida!=null&&(cfg().niveis[v.nivel]||{}).tipo==='piso'?' · saída R$ '+v.valorSaida:''}</span></h3>${(v.clientes||[]).length||(v.zonas||[]).length||v.sobra?`<div class="small muted">Preferência: ${[(v.clientes||[]).length?(v.exclusivo?'somente ':'')+v.clientes.join(', '):'',(v.zonas||[]).length?'zona '+v.zonas.join('/'):'',v.sobra?'o que sobrar':''].filter(Boolean).join(' · ')}</div>`:''}
-  <div class="kpis"><span class="kpi">Saída <b>${fmtHM(sim.saida)}</b></span><span class="kpi">Última <b>${fmtHM(sim.ultima)}</b></span><span class="kpi"><b>${sim.ids.length}</b> entregas</span>${(()=>{const B=plan().baixa||{};const ok=sim.ids.filter(id=>B[id]&&B[id].est==='completed').length,fx=sim.ids.filter(id=>B[id]&&B[id].est==='failed').length;return (ok+fx)?`<span class="kpi" style="color:var(--ok)">✅ <b>${ok}</b>/${sim.ids.length}${fx?` · ❌ ${fx}`:''}</span>`:''})()}${htmlRastreio(v.id)}<span class="kpi" ${v.cap&&sim.vol>v.cap?'style="background:rgba(185,28,28,.15);color:var(--bad)"':''}>Capacidade <b>${sim.vol}${v.cap?'/'+v.cap:''}</b> caixas${v.cap?'':' <span class="muted">(defina a capacidade em Veículos)</span>'}</span><span class="kpi">Km pago <b>${fmtKm(sim.kmPago)}</b></span><span class="kpi">c/ volta <b>${fmtKm(sim.kmTotal)}</b></span><span class="kpi">Custo est. <b>${v.parentId?'somado ao Roteiro 1':fmtR(custo)+(temGrupo?' (todos os roteiros)':'')}</b></span>${sim.lateCount?`<span class="kpi" style="background:rgba(185,28,28,.15);color:var(--bad)"><b>${sim.lateCount} fora do horário</b></span>`:`<span class="kpi" style="color:var(--ok)"><b>✓ todas no horário</b></span>`}</div>
+  <div class="kpis"><span class="kpi">Saída <b>${fmtHM(sim.saida)}</b></span><span class="kpi">Última <b>${fmtHM(sim.ultima)}</b></span><span class="kpi"><b>${sim.ids.length}</b> entregas</span>${(()=>{const B=plan().baixa||{};const ok=sim.ids.filter(id=>B[id]&&B[id].est==='completed').length,fx=sim.ids.filter(id=>B[id]&&B[id].est==='failed').length;return (ok+fx)?`<span class="kpi" style="color:var(--ok)">✅ <b>${ok}</b>/${sim.ids.length}${fx?` · ❌ ${fx}`:''}</span>`:''})()}${htmlRastreio(v.id)}<span class="kpi" ${v.cap&&sim.vol>v.cap?'style="background:rgba(185,28,28,.15);color:var(--bad)"':''}>Capacidade <b>${sim.vol}${v.cap?'/'+v.cap:''}</b> caixas${v.cap?'':' <span class="muted">(defina a capacidade em Veículos)</span>'}</span><span class="kpi">Km pago <b>${fmtKm(sim.kmPago)}</b></span><span class="kpi">c/ volta <b>${fmtKm(sim.kmTotal)}</b></span><span class="kpi">Custo est. <b>${v.parentId?'somado ao Roteiro 1':fmtR(custo)+(temGrupo?' (todos os roteiros)':'')}</b></span>${PVS[v.id]?"":sim.lateCount?`<span class="kpi" style="background:rgba(185,28,28,.15);color:var(--bad)"><b>${sim.lateCount} fora do horário</b></span>`:`<span class="kpi" style="color:var(--ok)"><b>✓ todas no horário</b></span>`}${(()=>{const pv=PVS[v.id];if(!pv)return'';const n=Object.values(pv).filter(x=>x.st==='atraso').length,nt=Object.values(pv).filter(x=>x.st==='tol').length;return n?`<span class="kpi pv-atr" style="background:rgba(185,28,28,.15)"><b>⚠ ${n===1?'1 entrega vai':n+' entregas vão'} atrasar</b></span>`:nt?`<span class="kpi pv-tol"><b>${nt} na tolerância</b></span>`:`<span class="kpi pv-ok"><b>🕒 previsão no horário</b></span>`})()}</div>
   ${(()=>{const ax=alertasAnalise(v),n=alerts.length+ax.length,ab=detAbertos.has(v.id);return `<div class="row" style="margin:6px 0 0"><button class="sm tgl${n?' al':''}" data-det="${v.id}" title="${esc(alerts.concat(ax).join(' · ')||'Rodízio e pedágio')}">${n?`⚠ ${n} alerta${n>1?'s':''}`:'ℹ detalhes'} ${ab?'▴':'▾'}</button></div><div class="det${ab?' on':''}" id="det_${v.id}">${alerts.map(a=>`<div class="alert">${esc(a)}</div>`).join('')}${htmlAnalise(v)}</div>`})()}
   <div class="row" style="margin:6px 0 0"><button class="sm" data-ropt="${v.id}">Otimizar ordem</button>${v.parentId?'':`<button class="sm" data-r2="${v.id}" title="Cria uma segunda saída do mesmo motorista, depois que ele voltar à sede">+ Roteiro 2</button>`}<button class="sm" data-wa="${v.id}">${celOk()?'Enviar rota + link de baixa':'Copiar p/ WhatsApp'}</button>${(plan().celPub||{})[v.id]?'<span class="kpi small" style="color:var(--ok)">📲 link enviado</span>':''}${mapsLinks(v.id).map((u,i,a)=>`<a class="small" href="${u}" target="_blank" rel="noopener">Google Maps${a.length>1?' '+(i+1):''}</a>`).join(' ')}</div>
-  <ul class="slist">${sim.stops.map((st,i)=>{const s=S[st.id];return`<li draggable="true" data-sid="${st.id}" data-vid="${v.id}" data-pos="${i}"><span class="seq">${i+1}</span><span><b>${fmtHM(st.inicio)}</b> ${esc(s.cliente||'')}${s.os?` <span class="muted small">Ped. ${esc(s.os)}</span>`:''}${s.tipo?` <span class="kpi small">${esc(s.tipo)}</span>`:''}${zonaDe(s)?` <span class="kpi small">${zonaDe(s)}</span>`:''}${s._fora?` <span class="kpi small" style="color:var(--warn)">não coube no motorista fixo</span>`:''}<br><span class="small muted">${esc(s.endereco)}</span>${s.idsJuntos?`<br><span class="small" style="color:var(--warn);font-weight:600">Entrega conjunta: pedidos ${esc(s.idsJuntos.join(', '))}</span>`:''}${htmlBaixaStop(st.id)}${document.body.classList.contains('modoCel')?badgePend(st.id):''}<br><span class="small ${st.late?'bad':'muted'}">janela ${fmtHM(s.jIni)}${jEnd(s,cfg())!=null?'–'+fmtHM(jEnd(s,cfg())):''}${st.late?` · atraso ${Math.round(st.late)} min`:''}${st.wait>5?` · espera ${Math.round(st.wait)} min`:''} · ${s.servico!=null?s.servico:cfg().servico} min p/ entregar${s.volume?` · ${s.volume} cx`:''} · ${fmtKm(st.kmAcum)}</span></span>
+  <ul class="slist">${sim.stops.map((st,i)=>{const s=S[st.id];return`<li draggable="true" data-sid="${st.id}" data-vid="${v.id}" data-pos="${i}"><span class="seq">${i+1}</span><span><b>${fmtHM(st.inicio)}</b> ${esc(s.cliente||'')}${s.os?` <span class="muted small">Ped. ${esc(s.os)}</span>`:''}${s.tipo?` <span class="kpi small">${esc(s.tipo)}</span>`:''}${zonaDe(s)?` <span class="kpi small">${zonaDe(s)}</span>`:''}${s._fora?` <span class="kpi small" style="color:var(--warn)">não coube no motorista fixo</span>`:''}<br><span class="small muted">${esc(s.endereco)}</span>${s.idsJuntos?`<br><span class="small" style="color:var(--warn);font-weight:600">Entrega conjunta: pedidos ${esc(s.idsJuntos.join(', '))}</span>`:''}${htmlBaixaStop(st.id)}${htmlPrev(PVS[v.id]&&PVS[v.id][st.id])}${document.body.classList.contains('modoCel')?badgePend(st.id):''}<br><span class="small ${st.late?'bad':'muted'}">janela ${fmtHM(s.jIni)}${jEnd(s,cfg())!=null?'–'+fmtHM(jEnd(s,cfg())):''}${st.late?` · atraso ${Math.round(st.late)} min`:''}${st.wait>5?` · espera ${Math.round(st.wait)} min`:''} · ${s.servico!=null?s.servico:cfg().servico} min p/ entregar${s.volume?` · ${s.volume} cx`:''} · ${fmtKm(st.kmAcum)}</span></span>
   <span style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><span style="white-space:nowrap">${s.fixo?`<button class="sm ghost" data-unlock="${st.id}" title="Travada neste carro pelo ajuste manual — clique para liberar">🔒</button>`:''}<button class="sm ghost" data-up="${v.id}|${i}">▲</button><button class="sm ghost" data-dn="${v.id}|${i}">▼</button><button class="sm ghost" data-un="${st.id}" title="Tirar da rota">✕</button></span><select class="mv" data-asg="${st.id}">${moveOpts(v.id)}</select></span></li>`}).join('')}</ul></div>`;
  });
  for(const v of state.vehicles){if(v.parentId||!cards[v.id]&&!state.vehicles.some(x=>x.parentId===v.id&&cards[x.id]))continue;
@@ -1049,6 +1093,7 @@ function renderRoutes(){
  const nAp=state.vehicles.filter(v=>v.ativo).length;const bar=`<div class="card" style="--c:var(--accent);grid-column:1/-1"><div class="secTit"><b class="small">🚚 Carros aprovados para rodar</b><span class="small muted">${nAp} de ${state.vehicles.length}</span><span class="spacer"></span>${plan().stops.some(s=>s.fixo)?'<button class="sm" id="bUnlockAll" title="Remove as travas dos ajustes manuais antes de otimizar de novo">Liberar ajustes manuais</button>':''}<button class="sm tgl" data-sec="carros">${uiGet().carros?'ocultar ▴':'mostrar ▾'}</button></div><div class="det${uiGet().carros?' on':''}" id="sec_carros"><div class="chips" style="margin-top:6px">${state.vehicles.map((v,vi)=>`<label class="chip ${v.ativo?'on':''}" style="--c:${COLORS[vi%COLORS.length]}"><input type="checkbox" data-appr="${v.id}" ${v.ativo?'checked':''}><span class="dot" style="background:${COLORS[vi%COLORS.length]}"></span>${esc(rotLabel(v))} <span class="small muted">${esc(v.nivel||'')} · ${fmtHM(v.ini)}–${fmtHM(v.fim)}${v.cap?' · '+v.cap+' cx':''}</span></label>`).join('')}</div>
  <div class="small muted" style="margin-top:4px">O otimizador usa todos os carros marcados, não aceita entrega fora da janela e respeita os clientes fixos e as regiões de cada motorista. Para mudar uma entrega de carro: arraste-a para outro cartão, use "Mover para…" ou clique no pino do mapa. Entregas movidas à mão ficam travadas (🔒) naquele carro.</div></div></div>`;
  $('#routes').innerHTML=bar+h;
+ try{renderAlertaPrev()}catch(e){}
 }
 
 function mapsLinks(vid){
@@ -1161,7 +1206,7 @@ const DASH={aba:'hoje',per:'7',ini:null,fim:null,dia:null,ord:{k:'nota',d:-1},ti
 function isoHoje(){const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10)}
 function addDias(iso,n){const d=new Date(iso+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10)}
 const hm2min=s=>{const m=/^(\d{1,2}):(\d{2})/.exec(s||'');return m?(+m[1])*60+(+m[2]):null};
-function tolOTIF(){const t=+cfg().tolOTIF;return cfg().tolOTIF!=null&&!isNaN(t)?t:15}
+function tolOTIF(){const t=+cfg().tolOTIF;return cfg().tolOTIF!=null&&!isNaN(t)?t:20}
 const pct=x=>x==null?'—':Math.round(x*100)+'%';
 const grupoCliente=c=>String(c||'—').split(/\s+[-–]\s+/)[0].trim()||'—';
 /* resumo do roteiro (previsto) salvo junto com o plano do dia — base do histórico */
@@ -1249,7 +1294,7 @@ function htmlDashHoje(D){const L=D.linhas,R=D.rotas,K=dashKpis(L,R);const agora=
  for(const r of R){const Lr=L.filter(x=>x.vid===r.vid&&x.data===r.data);const k=dashKpis(Lr,[r]);const feitas=k.ent+k.fx;
   const prox=r.ids.map(id=>Lr.find(x=>x.sid===id)).find(x=>x&&x.st==='pendente');const atr=Lr.filter(x=>atras.includes(x)).length;
   const sit=r.fim?`🏁 finalizado ${hmLocal(r.fim)}`:r.inicio?`🟢 em rota${r.pos_em?' · GPS '+haMin(r.pos_em):''}`:feitas?'🟠 sem GPS (dando baixa)':(ehHoje&&r.saidaPrev!=null&&nowMin>r.saidaPrev+15?'🔴 não iniciou':'⚪ aguardando saída');
-  h+=`<tr><td><b>${esc(r.rot)}</b></td><td><div class="dbar" title="${feitas} de ${r.n}"><i style="width:${r.n?100*feitas/r.n:0}%"></i></div><span class="small muted">${feitas}/${r.n}</span></td><td>${k.ent}</td><td>${k.fx||''}</td><td class="${corPct(k.otif,.9,.75)}">${pct(k.otif)}</td><td>${r.inicio?hmLocal(r.inicio):'<span class="muted">—</span>'}</td><td>${sit}${atr?` <span class="ruim">· ${atr} atrasada(s)</span>`:''}</td><td>${prox?`${esc(prox.cliente)} <span class="small muted">prev. ${fmtHM(prox.prev)} · janela até ${fmtHM(prox.jFim)}</span>`:(feitas===r.n?'<span class="bom">concluído</span>':'—')}</td></tr>`}
+  h+=`<tr><td><b>${esc(r.rot)}</b></td><td><div class="dbar" title="${feitas} de ${r.n}"><i style="width:${r.n?100*feitas/r.n:0}%"></i></div><span class="small muted">${feitas}/${r.n}</span></td><td>${k.ent}</td><td>${k.fx||''}</td><td class="${corPct(k.otif,.9,.75)}">${pct(k.otif)}</td><td>${r.inicio?hmLocal(r.inicio):'<span class="muted">—</span>'}</td><td>${sit}${atr?` <span class="ruim">· ${atr} atrasada(s)</span>`:''}</td><td>${prox?`${esc(prox.cliente)} <span class="small muted">prev. ${fmtHM(prox.prev)} · janela até ${fmtHM(prox.jFim)}</span>${(()=>{try{if(r.data!==plan().data)return'';const pv=previsaoRota(r.vid);return pv&&pv[prox.sid]?htmlPrev(pv[prox.sid]):''}catch(e){return''}})()}`:(feitas===r.n?'<span class="bom">concluído</span>':'—')}</td></tr>`}
  h+=`</tbody></table></div>`;
  const fxL=L.filter(x=>x.st==='fracassada');
  if(atras.length||fxL.length){h+=`<h3 class="dh">Atenção</h3><ul class="dlist">${atras.map(x=>`<li><span class="ruim">⚠ Atrasada</span> ${esc(x.cliente)} <span class="small muted">· ${esc(x.mot)} · janela até ${fmtHM(x.jFim)}</span></li>`).join('')}${fxL.map(x=>`<li><span class="ruim">❌ Fracassada ${fmtHM(x.h)}</span> ${esc(x.cliente)} <span class="small muted">· ${esc(x.mot)} · ${esc(x.motivo)}</span></li>`).join('')}</ul>`}
