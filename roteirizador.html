@@ -35,6 +35,10 @@ button.ghost{background:transparent;border-color:transparent;color:var(--muted)}
 body:not(.printing){height:100vh;display:flex;flex-direction:column;overflow:hidden}
 main{display:grid;grid-template-columns:var(--leftW,440px) 1fr;flex:1;min-height:0}
 body.semPainel main{grid-template-columns:1fr}body.semPainel #left{display:none}
+#buscaTopo{position:relative}#bqTopo{width:250px;max-width:60vw;padding:7px 10px;border-radius:8px;border:0;font:inherit;font-size:14px}
+#bqRes{display:none;position:absolute;left:0;top:calc(100% + 4px);width:min(460px,92vw);max-height:70vh;overflow:auto;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.35);z-index:4000}#bqRes.on{display:block}
+.bqItem{padding:9px 12px;border-bottom:1px solid var(--line);cursor:pointer;font-size:13px;line-height:1.45}.bqItem:hover,.bqItem.sel{background:rgba(34,197,94,.12)}.bqItem b{font-size:14px}.bqVazio{padding:12px;color:var(--muted);font-size:13px}
+#routes li.bqHi{outline:3px solid #f59e0b;outline-offset:2px;border-radius:6px;background:rgba(245,158,11,.12)}
 body.modoComercial :is(#bPainel,#bImport,#bAdd,#bGeo,#bOpt,#bXls,#bPrint,#bPE,#bDash,#bModo,#netBanner,#left,.int,[id^="det_"],.bxed){display:none!important}body.modoComercial main{grid-template-columns:1fr!important}
 #bPainel{background:rgba(255,255,255,.18);color:#fff;font-weight:600}#bPainel.on{background:#fff;color:var(--accent2)}
 #vsplit{height:14px;cursor:row-resize;z-index:500;touch-action:none;background:var(--line);position:relative}#vsplit:hover,#vsplit.drag{background:var(--accent2)}
@@ -154,6 +158,7 @@ body.modoCel header{gap:6px;padding:8px 10px}body.modoCel header .brand{font-siz
  <h1 class="brand"><svg class="logo" viewBox="0 0 52 52" aria-hidden="true"><rect width="52" height="52" rx="14" fill="#fff"/><path d="M17 40V12h10a7 7 0 0 1 0 14H17h12a7 7 0 0 1 0 14H17" fill="none" stroke="#14532d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="17" cy="40" r="3.5" fill="#f59e0b"/><circle cx="29" cy="40" r="3.5" fill="#14532d"/></svg><span>Berla<b>Route</b></span></h1>
  <button id="bPainel" title="Mostrar/ocultar o painel de Paradas, Veículos e Configuração">☰ Painel</button>
  <label>Data <input type="date" id="pdate"></label><span id="dateTag" class="small" style="opacity:.85"></span>
+ <div id="buscaTopo"><input type="search" id="bqTopo" placeholder="🔍 Pedido (ID) ou cliente" autocomplete="off" name="busca-topo-br"><div id="bqRes"></div></div>
  <button id="bImport" class="pri">① Importar Excel do MaxiProd</button>
  <button id="bAdd">+ Parada manual</button>
  <button id="bGeo">② Localizar endereços</button>
@@ -1995,6 +2000,39 @@ function enquadrar(bounds){const el=map.getContainer(),h=el.clientHeight,w=el.cl
  if(map.getZoom()<8){const b=L.latLngBounds(bounds);map.setView(b.getCenter(),8)}return true}
 function mapaAjusta(){if(map)setTimeout(()=>{map.invalidateSize();if((renderMap.bounds||[]).length>1&&(!renderMap.fitted||map.getZoom()<8)){if(enquadrar(renderMap.bounds))renderMap.fitted=true}},60)}
 function painel(abrir){document.body.classList.toggle('semPainel',!abrir);$('#bPainel').classList.toggle('on',abrir);uiSet({painel:abrir});mapaAjusta()}
+
+/* ---------- busca rápida no topo: pedido (ID) ou cliente ---------- */
+function bqResultados(q){const t=nrm(q).split(' ').filter(Boolean);if(!t.length)return[];const P=plan(),B=P.baixa||{},out=[];
+ for(const s of P.stops){const peds=[s.os].concat((s.pedidos||[]).map(x=>x.os),s.idsJuntos||[]).filter(Boolean).map(String);
+  const txt=nrm([s.cliente,s.endereco].concat(peds).join(' '));if(!t.every(w=>txt.includes(w)))continue;
+  const qq=nrm(q).trim(),exato=peds.some(x=>nrm(x)===qq)?3:nrm(s.cliente).startsWith(qq)?2:nrm(s.cliente).includes(qq)?1:0;out.push({s,peds,exato})}
+ return out.sort((a,b)=>(b.exato-a.exato)||String(a.s.cliente).localeCompare(String(b.s.cliente))).slice(0,12)}
+function bqSituacao(s){const P=plan(),b=(P.baixa||{})[s.id],vid=routeOf(s.id);
+ if(b&&b.est==='completed')return`<span style="color:var(--ok);font-weight:700">✅ Entregue ${esc(b.co||'')}</span>${b.com?' · recebido por '+esc(b.com):''}`;
+ if(b&&b.est==='failed')return`<span style="color:var(--bad);font-weight:700">❌ Não entregue ${esc(b.co||'')}</span>${b.com?' · '+esc(b.com):''}`;
+ if(b&&b.ci)return`<span style="color:#2563eb;font-weight:700">📍 No local desde ${esc(b.ci)}</span>`;
+ if(!vid)return'<span class="muted">⏳ Ainda sem rota</span>';
+ try{const pv=previsaoRota(vid);const x=pv&&pv[s.id];if(x&&x.eta!=null){const cor={ok:'pv-ok',tol:'pv-tol',atraso:'pv-atr',espera:'pv-cinza'}[x.st]||'pv-cinza';return`<span class="${cor}">🕒 chega ~${fmtHM(x.eta)}${x.st==='atraso'?' · atraso de '+fmtDur(x.atraso):x.st==='tol'?' · na tolerância':x.st==='espera'?' · aguarda a janela':' · no horário'}</span>`}}catch(e){}
+ const st=sims[vid]&&sims[vid].stops.find(x=>x.id===s.id);return`<span class="muted">⏳ Pendente${st?' · previsto '+fmtHM(st.inicio):''}</span>`}
+function bqRender(){const el=$('#bqRes'),q=$('#bqTopo').value;if(!q.trim()){el.classList.remove('on');el.innerHTML='';return}
+ const R=bqResultados(q);bqRender.sel=0;
+ el.innerHTML=R.length?R.map((r,i)=>{const s=r.s,vid=routeOf(s.id),v=vid&&vById(vid);const sim=vid&&sims[vid];const pos=sim?sim.stops.findIndex(x=>x.id===s.id):-1;
+  return`<div class="bqItem${i===0?' sel':''}" data-bq="${s.id}"><b>${esc(s.cliente||'')}</b> <span class="muted">Ped. ${esc(r.peds.join(', '))}</span><br>🚚 <b>${v?esc(rotLabel(v)):'sem motorista'}</b>${pos>=0?` · ${pos+1}ª entrega`:''} · janela ${fmtHM(s.jIni)}${jEnd(s,cfg())!=null?'–'+fmtHM(jEnd(s,cfg())):''}<br>${bqSituacao(s)}<br><span class="small muted">${esc(s.endereco||'')}</span></div>`}).join('')
+  :'<div class="bqVazio">Nenhuma entrega encontrada neste dia. Confira a data no topo.</div>';
+ el.classList.add('on')}
+function bqAbrir(id){$('#bqRes').classList.remove('on');$('#bqTopo').blur();
+ try{focarParada(id)}catch(e){}
+ const li=document.querySelector(`#routes li[data-sid="${CSS.escape(id)}"]`);
+ if(li){document.querySelectorAll('#routes li.bqHi').forEach(x=>x.classList.remove('bqHi'));li.classList.add('bqHi');li.scrollIntoView({behavior:'smooth',block:'center'});clearTimeout(bqAbrir.t);bqAbrir.t=setTimeout(()=>li.classList.remove('bqHi'),6000)}}
+(function(){const i=$('#bqTopo'),r=$('#bqRes');if(!i)return;
+ i.addEventListener('input',bqRender);i.addEventListener('focus',()=>{if(i.value.trim())bqRender()});
+ i.addEventListener('keydown',e=>{const its=[...r.querySelectorAll('.bqItem')];if(e.key==='Escape'){r.classList.remove('on');return}
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){if(!its.length)return;e.preventDefault();bqRender.sel=(bqRender.sel+(e.key==='ArrowDown'?1:-1)+its.length)%its.length;its.forEach((x,k)=>x.classList.toggle('sel',k===bqRender.sel));its[bqRender.sel].scrollIntoView({block:'nearest'})}
+  if(e.key==='Enter'){const it=its[bqRender.sel||0];if(it){e.preventDefault();bqAbrir(it.dataset.bq)}}});
+ r.addEventListener('mousedown',e=>{const it=e.target.closest('[data-bq]');if(it){e.preventDefault();bqAbrir(it.dataset.bq)}});
+ document.addEventListener('mousedown',e=>{if(!e.target.closest('#buscaTopo'))r.classList.remove('on')});
+})();
+
 (function initLayout(){
  const u=uiGet();painel(u.painel===true);
  if(u.mapH2)document.documentElement.style.setProperty('--mapH',u.mapH2+'%');
