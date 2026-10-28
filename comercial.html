@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#14532d">
+<title>BerlaRoute – Entregas</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{--bg:#f3f5f4;--card:#fff;--ink:#1c2430;--mut:#5d6b64;--ln:#dfe5e2;--chip:#eef2f0;--ok:#15803d;--bad:#b91c1c;--warn:#b45309;--pri:#14532d}
+@media (prefers-color-scheme:dark){:root{--bg:#12161c;--card:#1a2028;--ink:#e6e9ee;--mut:#9aa4b2;--ln:#2c343f;--chip:#24302a;--ok:#4ade80;--bad:#f87171;--warn:#fbbf24}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{background:var(--pri);color:#fff;padding:10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:700;margin:0}
+.brand svg{width:30px;height:30px}.brand small{font-weight:400;opacity:.85;font-size:13px}
+header .sp{flex:1}
+header input[type=date]{padding:6px 8px;border-radius:8px;border:0;font:inherit}
+header button{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:6px 10px;font:inherit;cursor:pointer}
+#quem{font-size:12px;opacity:.85}
+main{display:grid;grid-template-columns:minmax(340px,460px) 1fr;height:calc(100% - 54px)}
+#lado{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--ln)}
+#ferr{padding:10px 12px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--ln);background:var(--card)}
+#busca{width:100%;padding:9px 11px;border:1px solid var(--ln);border-radius:9px;font:inherit;background:var(--bg);color:var(--ink)}
+.filt{display:flex;gap:6px;flex-wrap:wrap}
+.filt button{border:1px solid var(--ln);background:var(--chip);color:var(--ink);border-radius:999px;padding:5px 11px;font:inherit;font-size:13px;cursor:pointer}
+.filt button.on{background:var(--pri);color:#fff;border-color:var(--pri)}
+#lista{overflow:auto;padding:8px 12px 20px;flex:1}
+.ent{background:var(--card);border:1px solid var(--ln);border-left:5px solid var(--mut);border-radius:10px;padding:10px 12px;margin:8px 0;cursor:pointer}
+.ent.ok{border-left-color:var(--ok)}.ent.fx{border-left-color:var(--bad)}.ent.atr{border-left-color:var(--warn)}.ent.loc{border-left-color:#2563eb}
+.ent.sel{outline:2px solid var(--pri)}
+.cli{font-weight:700;font-size:15px}.ped{color:var(--mut);font-weight:400;font-size:12px}
+.end{color:var(--mut);font-size:13px;margin:2px 0 4px}
+.st{display:inline-block;font-weight:700;font-size:13px;padding:2px 8px;border-radius:6px;background:var(--chip)}
+.ok .st{color:var(--ok)}.fx .st{color:var(--bad)}.atr .st{color:var(--warn)}.loc .st{color:#2563eb}
+.det{font-size:13px;margin-top:4px}.det b{font-weight:600}
+.fts{margin-top:6px;display:flex;gap:6px;flex-wrap:wrap}
+.fts a{display:block;width:64px;height:64px;border-radius:8px;overflow:hidden;border:1px solid var(--ln);background:var(--chip)}
+.fts img{width:100%;height:100%;object-fit:cover}
+#mapa{height:100%;min-height:300px}
+#msg{padding:30px 16px;text-align:center;color:var(--mut)}
+#login{position:fixed;inset:0;background:var(--bg);display:none;align-items:center;justify-content:center;padding:16px;z-index:3000}
+#login form{background:var(--card);border:1px solid var(--ln);border-radius:14px;padding:22px;width:min(360px,100%);display:flex;flex-direction:column;gap:10px}
+#login input{padding:10px;border:1px solid var(--ln);border-radius:9px;font:inherit;background:var(--bg);color:var(--ink)}
+#login button{padding:11px;border:0;border-radius:9px;background:var(--pri);color:#fff;font:inherit;font-weight:700;cursor:pointer}
+#lgErro{color:var(--bad);font-size:13px;min-height:1em}
+.pin{width:26px;height:26px;border-radius:50%;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:12px}
+@media (max-width:820px){main{grid-template-columns:1fr;grid-template-rows:280px 1fr;height:auto}#mapa{grid-row:1;height:280px}#lado{grid-row:2;border-right:0}#lista{overflow:visible}}
+</style>
+</head>
+<body>
+<header>
+ <h1 class="brand"><svg viewBox="0 0 52 52" aria-hidden="true"><rect width="52" height="52" rx="14" fill="#fff"/><path d="M17 40V12h10a7 7 0 0 1 0 14H17h12a7 7 0 0 1 0 14H17" fill="none" stroke="#14532d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="17" cy="40" r="3.5" fill="#f59e0b"/><circle cx="29" cy="40" r="3.5" fill="#14532d"/></svg>BerlaRoute <small>· Entregas</small></h1>
+ <input type="date" id="dia" aria-label="Dia">
+ <span class="sp"></span>
+ <span id="quem"></span><button id="sair" type="button">Sair</button>
+</header>
+<main>
+ <section id="lado">
+  <div id="ferr">
+   <input id="busca" type="search" placeholder="🔍 Buscar cliente, pedido ou endereço" autocomplete="off">
+   <div class="filt" id="filt"></div>
+  </div>
+  <div id="lista"><div id="msg">Carregando…</div></div>
+ </section>
+ <div id="mapa"></div>
+</main>
+<div id="login"><form id="lgForm">
+ <h2 style="margin:0 0 4px">BerlaRoute · Entregas</h2>
+ <input id="lgEmail" type="email" placeholder="E-mail" autocomplete="username" required>
+ <input id="lgSenha" type="password" placeholder="Senha" autocomplete="current-password" required>
+ <button type="submit" id="lgBtn">Entrar</button>
+ <div id="lgErro"></div>
+</form></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+"use strict";
+const SB_URL='https://nuicnpxpuhlbmfrmdirf.supabase.co',SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im51aWNucHhwdWhsYm1mcm1kaXJmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0NTA5MjEsImV4cCI6MjEwNzAyNjkyMX0.epWBD3u8JwjRWllQFJovBO5d4WX42xzXTKsnb9HnJwc';
+const TOL=20,JANELA_PADRAO=60,LS='berlaroute_com_sessao';
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const hm=m=>m==null||isNaN(m)?'—':String(Math.floor(m/60)).padStart(2,'0')+':'+String(Math.round(m%60)).padStart(2,'0');
+const hmIso=iso=>{const d=new Date(iso);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
+const hoje=()=>{const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10)};
+const fotoUrl=p=>SB_URL+'/storage/v1/object/public/baixas/'+String(p).split('/').map(encodeURIComponent).join('/');
+const nrm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+let sessao=null,dados=[],filtro='todas',sel=null,map=null,camada=null,marcas={},timer=null;
+/* ---------- login ---------- */
+function lerSessao(){try{return JSON.parse(localStorage.getItem(LS))}catch(e){return null}}
+function gravar(s){sessao=s;try{s?localStorage.setItem(LS,JSON.stringify(s)):localStorage.removeItem(LS)}catch(e){}}
+async function auth(path,body){const r=await fetch(SB_URL+'/auth/v1/'+path,{method:'POST',headers:{apikey:SB_KEY,'Content-Type':'application/json'},body:JSON.stringify(body)});const j=await r.json().catch(()=>({}));
+ if(!r.ok){const m=j.error_description||j.msg||j.message||('erro '+r.status);throw new Error(/invalid login/i.test(m)?'E-mail ou senha incorretos':m)}
+ gravar({access_token:j.access_token,refresh_token:j.refresh_token,expires_at:Date.now()+(j.expires_in||3600)*1000,email:(j.user||{}).email||''})}
+async function token(){if(!sessao)throw new Error('login');if(Date.now()>sessao.expires_at-60000){const e=sessao.email;await auth('token?grant_type=refresh_token',{refresh_token:sessao.refresh_token});sessao.email=sessao.email||e;gravar(sessao)}return sessao.access_token}
+async function rpc(fn,body){const tk=await token();const r=await fetch(SB_URL+'/rest/v1/rpc/'+fn,{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+tk,'Content-Type':'application/json'},body:JSON.stringify(body)});const t=await r.text();let j=null;try{j=t?JSON.parse(t):null}catch(e){}
+ if(r.status===401){gravar(null);mostrarLogin();throw new Error('faça login')}if(!r.ok)throw new Error((j&&(j.message||j.hint))||('erro '+r.status));return j}
+function mostrarLogin(){$('#login').style.display='flex';setTimeout(()=>$('#lgEmail').focus(),50)}
+$('#lgForm').addEventListener('submit',async e=>{e.preventDefault();$('#lgErro').textContent='';$('#lgBtn').disabled=true;
+ try{await auth('token?grant_type=password',{email:$('#lgEmail').value.trim(),password:$('#lgSenha').value});$('#lgSenha').value='';$('#login').style.display='none';iniciar()}
+ catch(err){$('#lgErro').textContent=err.message}finally{$('#lgBtn').disabled=false}});
+$('#sair').onclick=()=>{gravar(null);dados=[];render();mostrarLogin()};
+/* ---------- dados ---------- */
+function situacao(e){const jf=e.jFim!=null?e.jFim:(e.jIni!=null?e.jIni+JANELA_PADRAO:null);const r={cls:'',txt:'',det:'',fotos:[]};
+ (e.fotos||[]).forEach(f=>{if(f&&f.path)r.fotos.push({tipo:f.tipo,url:fotoUrl(f.path)})});
+ const m=e.manual;if(m&&m.fotos)(m.fotos||[]).forEach(f=>{if(f&&f.url)r.fotos.push({tipo:f.tipo,url:f.url})});
+ if(e.status==='entregue'){r.cls='ok';r.txt='✅ Entregue às '+hmIso(e.quando);if(e.obs)r.det='<b>Recebido por:</b> '+esc(e.obs)}
+ else if(e.status==='fracassada'){r.cls='fx';r.txt='❌ Não entregue · '+hmIso(e.quando);if(e.obs)r.det='<b>Motivo:</b> '+esc(e.obs)}
+ else if(m&&m.est==='completed'){r.cls='ok';r.txt='✅ Entregue'+(m.co?' às '+esc(m.co):'');if(m.com)r.det='<b>Recebido por:</b> '+esc(m.com)}
+ else if(m&&m.est==='failed'){r.cls='fx';r.txt='❌ Não entregue'+(m.co?' · '+esc(m.co):'');if(m.com)r.det='<b>Motivo:</b> '+esc(m.com)}
+ else if(e.chegada&&e.status!=='desfeita'){r.cls='loc';r.txt='📍 No local desde '+hmIso(e.chegada)}
+ else{const d=new Date(),agora=d.getHours()*60+d.getMinutes();
+  if($('#dia').value===hoje()&&jf!=null&&agora>jf+TOL){r.cls='atr';r.txt='⚠ Pendente · janela terminou às '+hm(jf)}
+  else{r.cls='';r.txt='⏳ Pendente'}}
+ r.grupo=r.cls==='ok'?'entregues':r.cls==='fx'?'nao':'pendentes';
+ r.janela=e.jIni!=null?hm(e.jIni)+(jf!=null?'–'+hm(jf):''):'';return r}
+async function carregar(manual){const d=$('#dia').value||hoje();
+ try{const res=await rpc('entregas_dia_c',{p_data:d});dados=(res||[]).map(e=>Object.assign(e,{sit:situacao(e)}));render()}
+ catch(err){if(/login/.test(err.message))return;$('#lista').innerHTML='<div id="msg">Não consegui carregar as entregas: '+esc(err.message)+'</div>'}}
+/* ---------- tela ---------- */
+const FILTROS=[['todas','Todas'],['pendentes','⏳ Pendentes'],['entregues','✅ Entregues'],['nao','❌ Não entregues']];
+function render(){const q=nrm($('#busca').value);
+ const cont={todas:dados.length,pendentes:0,entregues:0,nao:0};dados.forEach(e=>cont[e.sit.grupo]++);
+ $('#filt').innerHTML=FILTROS.map(([k,t])=>`<button type="button" data-f="${k}" class="${filtro===k?'on':''}">${t} (${cont[k]})</button>`).join('');
+ const vis=dados.filter(e=>(filtro==='todas'||e.sit.grupo===filtro)&&(!q||nrm([e.cliente,e.endereco,e.os,(e.pedidos||[]).join(' ')].join(' ')).includes(q)))
+  .sort((a,b)=>(a.jIni??9999)-(b.jIni??9999)||String(a.cliente).localeCompare(String(b.cliente)));
+ $('#lista').innerHTML=vis.length?vis.map(e=>{const s=e.sit;const peds=(e.pedidos&&e.pedidos.length?e.pedidos:[e.os]).filter(Boolean).join(', ');
+  return `<div class="ent ${s.cls}${sel===e.id?' sel':''}" data-id="${esc(e.id)}"><div class="cli">${esc(e.cliente)} ${peds?`<span class="ped">Ped. ${esc(peds)}</span>`:''}</div>
+  <div class="end">${esc(e.endereco)}</div><span class="st">${s.txt}</span>
+  <div class="det">${s.janela?'Janela '+s.janela:''}${e.caixas?' · '+esc(e.caixas)+' cx':''}${s.det?'<br>'+s.det:''}</div>
+  ${s.fotos.length?`<div class="fts">${s.fotos.map(f=>`<a href="${esc(f.url)}" target="_blank" rel="noopener" title="${f.tipo==='os'?'OS assinada':f.tipo==='caixas'?'Caixas no local':'Foto'}"><img src="${esc(f.url)}" loading="lazy" alt="${f.tipo==='os'?'OS assinada':'Foto da entrega'}"></a>`).join('')}</div>`:''}</div>`}).join('')
+  :`<div id="msg">${dados.length?'Nenhuma entrega com esse filtro.':'Nenhuma entrega programada para este dia.'}</div>`;
+ desenharMapa(vis)}
+function cor(c){return c==='ok'?'#16a34a':c==='fx'?'#dc2626':c==='atr'?'#d97706':c==='loc'?'#2563eb':'#64748b'}
+function desenharMapa(vis){if(!window.L)return;if(!map){map=L.map('mapa',{zoomControl:true}).setView([-23.55,-46.63],10);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{maxZoom:19,attribution:'© OpenStreetMap · © CARTO'}).addTo(map);camada=L.layerGroup().addTo(map)}
+ camada.clearLayers();marcas={};const pts=[];
+ vis.forEach(e=>{if(e.lat==null||e.lng==null)return;const ic=L.divIcon({className:'',html:`<div class="pin" style="background:${cor(e.sit.cls)}">${e.sit.cls==='ok'?'✓':e.sit.cls==='fx'?'✗':''}</div>`,iconSize:[26,26],iconAnchor:[13,13]});
+  const m=L.marker([e.lat,e.lng],{icon:ic}).bindPopup(`<b>${esc(e.cliente)}</b><br>${esc(e.endereco)}<br>${e.sit.txt}${e.sit.janela?'<br>Janela '+e.sit.janela:''}`);
+  m.on('click',()=>selecionar(e.id,false));m.addTo(camada);marcas[e.id]=m;pts.push([e.lat,e.lng])});
+ if(pts.length&&!desenharMapa.ajustou){map.fitBounds(pts,{padding:[30,30],maxZoom:14});desenharMapa.ajustou=true}}
+function selecionar(id,doMapa){sel=id;document.querySelectorAll('.ent').forEach(x=>x.classList.toggle('sel',x.dataset.id===id));
+ const m=marcas[id];if(doMapa&&m){map.setView(m.getLatLng(),15);m.openPopup();if(innerWidth<=820)$('#mapa').scrollIntoView({behavior:'smooth'})}
+ else{const c=document.querySelector(`.ent[data-id="${CSS.escape(id)}"]`);if(c)c.scrollIntoView({block:'nearest',behavior:'smooth'})}}
+$('#lista').addEventListener('click',e=>{if(e.target.closest('a'))return;const c=e.target.closest('.ent');if(c)selecionar(c.dataset.id,true)});
+$('#filt').addEventListener('click',e=>{const b=e.target.closest('[data-f]');if(b){filtro=b.dataset.f;render()}});
+$('#busca').addEventListener('input',()=>render());
+$('#dia').addEventListener('change',()=>{desenharMapa.ajustou=false;carregar()});
+function iniciar(){$('#quem').textContent=sessao&&sessao.email||'';if(!$('#dia').value)$('#dia').value=hoje();carregar();
+ clearInterval(timer);timer=setInterval(()=>{if(sessao&&$('#dia').value===hoje()&&document.visibilityState==='visible')carregar()},60000)}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&sessao&&$('#dia').value===hoje())carregar()});
+sessao=lerSessao();$('#dia').value=hoje();if(sessao)iniciar();else mostrarLogin();
+</script>
+</body>
+</html>
