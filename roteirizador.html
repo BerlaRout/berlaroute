@@ -1015,7 +1015,7 @@ function renderConfig(){
 const grpId=v=>v.parentId||v.id;
 function grpKm(gid){let k=0,any=false;for(const v of state.vehicles){if(grpId(v)===gid&&sims[v.id]){k+=sims[v.id].kmPago;any=true}}return any?k:null}
 function temAcordo(v){return v&&v.valorAcordado!=null&&v.valorAcordado!==''&&!isNaN(+v.valorAcordado)}
-function tarifaRot(v,km){if(km==null)return null;if(temAcordo(v))return +v.valorAcordado;const pai=v.parentId?vById(v.parentId):null;const base=pai?{...v,nivel:pai.nivel,cotacao:pai.cotacao,valorSaida:pai.valorSaida,tarifa:pai.tarifa}:v;return tarifaCusto(base,km,cfg().niveis)}
+function tarifaRot(v,km){if(km==null)return null;if(temAcordo(v))return +v.valorAcordado;const pai=v.parentId?vById(v.parentId):null;const base=pai?{...v,nivel:v.nivel||pai.nivel,cotacao:v.cotacao??pai.cotacao,valorSaida:v.valorSaida??pai.valorSaida,tarifa:v.tarifa||pai.tarifa}:v;return tarifaCusto(base,km,cfg().niveis)}
 function extraRot(v){const e=(plan().custoExtra||{})[v.id];return e&&!isNaN(+e.valor)?+e.valor:0}
 function custoRot(v){const sim=sims[v.id];return sim?(tarifaRot(v,sim.kmPago)||0)+extraRot(v):null}
 function grpCusto(gid){const pv=vById(gid);const k=grpKm(gid);return pv&&k!=null?tarifaCusto(pv,k,cfg().niveis):null}
@@ -1282,7 +1282,7 @@ async function completarKmCusto(rotas){const d=cfg().depot;const falta=rotas.fil
   r.km=kmCacheDash[k];r.kmEst=true}};
  await Promise.all([worker(),worker(),worker()]);
  for(const r of rotas){if(r.custo!=null)continue;const v=r.veh&&r.veh.id?r.veh:(vById(r.vid)||{});let c=null;
-  try{if(temAcordo(v))c=+v.valorAcordado;else{const pai=v.parentId?(vById(v.parentId)||{}):null;c=tarifaCusto(pai?{...v,nivel:pai.nivel,cotacao:pai.cotacao,valorSaida:pai.valorSaida,tarifa:pai.tarifa}:v,r.km,cfg().niveis)}}catch(e){}
+  try{if(temAcordo(v))c=+v.valorAcordado;else{const pai=v.parentId?(vById(v.parentId)||{}):null;c=tarifaCusto(pai?{...v,nivel:v.nivel||pai.nivel,cotacao:v.cotacao??pai.cotacao,valorSaida:v.valorSaida??pai.valorSaida,tarifa:v.tarifa||pai.tarifa}:v,r.km,cfg().niveis)}}catch(e){}
   r.custo=c||0}}
 function dashKpis(L,R){const ent=L.filter(x=>x.st==='entregue'),fx=L.filter(x=>x.st==='fracassada');const feitas=ent.length+fx.length;
  const comJ=ent.filter(x=>x.noH!=null);const custo=R.reduce((a,r)=>a+(r.custo||0),0),km=R.reduce((a,r)=>a+(r.km||0),0);
