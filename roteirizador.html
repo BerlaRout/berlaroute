@@ -173,7 +173,7 @@ body.modoCel header{gap:6px;padding:8px 10px}body.modoCel header .brand{font-siz
  <button id="bModo" class="sm" style="display:none" title="Alternar entre a versão completa e o modo acompanhamento (celular)">📱 Acompanhar</button>
 </header>
 <div id="alertaPrev" style="display:none"></div>
-<div id="dash"><div class="dhead"><b>📊 Dashboard BerlaRoute</b><div class="dtabs"><button data-daba="hoje">Hoje ao vivo</button><button data-daba="hist">Histórico</button><button data-daba="rank">Ranking de motoristas</button></div><span class="spacer"></span><button class="sm" data-drel="1" title="Recarregar dados">↻</button><button class="sm" data-dfechar="1">✕ Fechar</button></div><div id="dashFiltro" class="dfiltro"></div><div id="dashBody"></div></div>
+<div id="dash"><div class="dhead"><b>📊 Dashboard BerlaRoute</b><div class="dtabs"><button data-daba="hoje">Hoje ao vivo</button><button data-daba="hist">Histórico</button><button data-daba="rank">Ranking de motoristas</button><button data-daba="recibo">📄 Recibos</button></div><span class="spacer"></span><button class="sm" data-drel="1" title="Recarregar dados">↻</button><button class="sm" data-dfechar="1">✕ Fechar</button></div><div id="dashFiltro" class="dfiltro"></div><div id="dashBody"></div></div>
 <div id="celBar"><b class="small">📱 Acompanhamento</b><span id="celResumo" class="small muted"></span><span class="spacer"></span><button class="sm" id="bCelAtualizar">↻ Atualizar</button></div>
 <main>
  <div id="left">
@@ -1297,12 +1297,12 @@ const tile=(rot,val,sub,cls)=>`<div class="dtile${cls?' '+cls:''}"><div class="d
 const corPct=(x,bom,ruim,inv)=>x==null?'':(inv?(x<=bom?'bom':x>=ruim?'ruim':'med'):(x>=bom?'bom':x<=ruim?'ruim':'med'));
 function abrirDash(){$('#dash').classList.add('on');document.body.style.overflow='hidden';if(!DASH.dia)DASH.dia=isoHoje();renderDash(true)}
 function fecharDash(){$('#dash').classList.remove('on');document.body.style.overflow='';clearInterval(DASH.timer);DASH.timer=null}
-function periodoDash(){const h=isoHoje();if(DASH.per==='7')return[addDias(h,-6),h];if(DASH.per==='30')return[addDias(h,-29),h];if(DASH.per==='mes')return[h.slice(0,8)+'01',h];return[DASH.ini||addDias(h,-6),DASH.fim||h]}
+function periodoDash(){const h=isoHoje();if(DASH.per==='7')return[addDias(h,-6),h];if(DASH.per==='30')return[addDias(h,-29),h];if(DASH.per==='mes')return[h.slice(0,8)+'01',h];if(DASH.per==='semana'){const dw=diaSemana(h),dsab=(dw+1)%7,fimS=addDias(h,-dsab);return[addDias(fimS,-6),fimS]}return[DASH.ini||addDias(h,-6),DASH.fim||h]}
 async function renderDash(recarregar){
  const body=$('#dashBody');document.querySelectorAll('#dash [data-daba]').forEach(b=>b.classList.toggle('on',b.dataset.daba===DASH.aba));
  const[ini,fim]=DASH.aba==='hoje'?[DASH.dia,DASH.dia]:periodoDash();
  $('#dashFiltro').innerHTML=DASH.aba==='hoje'?`<label class="small">Dia <input type="date" id="dDia" value="${DASH.dia}"></label><button class="sm" data-dhoje="1">Hoje</button><span class="small muted">atualiza sozinho a cada 1 min</span>`
-  :`${[['7','7 dias'],['30','30 dias'],['mes','Este mês'],['cus','Personalizado']].map(([k,t])=>`<button class="sm${DASH.per===k?' on':''}" data-dper="${k}">${t}</button>`).join('')}${DASH.per==='cus'?`<input type="date" id="dIni" value="${ini}"> até <input type="date" id="dFim" value="${fim}">`:''}<span class="small muted">${fmtDate(ini)} a ${fmtDate(fim)}</span>`;
+  :`${[['7','7 dias'],['30','30 dias'],['mes','Este mês'],['semana','Semana (dom–sáb)'],['cus','Personalizado']].map(([k,t])=>`<button class="sm${DASH.per===k?' on':''}" data-dper="${k}">${t}</button>`).join('')}${DASH.per==='cus'?`<input type="date" id="dIni" value="${ini}"> até <input type="date" id="dFim" value="${fim}">`:''}<span class="small muted">${fmtDate(ini)} a ${fmtDate(fim)}</span>`;
  const chave=ini+'|'+fim;
  if(recarregar||!DASH.dados||DASH.dados.chave!==chave){body.innerHTML='<p class="muted" style="padding:20px">Carregando dados…</p>';DASH.carregando=true;
   try{const d=await dashColetar(ini,fim);d.chave=chave;DASH.dados=d}catch(e){body.innerHTML='<p class="bad" style="padding:20px">Não consegui carregar: '+esc(e.message||e)+'</p>';return}finally{DASH.carregando=false}}
@@ -1310,7 +1310,7 @@ async function renderDash(recarregar){
  const D={...D0,linhas:D0.linhas.filter(ft),rotas:D0.rotas.filter(ft)};
  $('#dashFiltro').insertAdjacentHTML('beforeend',`<select id="dTipo" title="Separar rotas normais e dedicadas"><option value="todas" ${DASH.tipo==='todas'?'selected':''}>Todas as rotas</option><option value="normal" ${DASH.tipo==='normal'?'selected':''}>Só rotas normais</option><option value="ded" ${DASH.tipo==='ded'?'selected':''}>Só dedicadas 🧳</option></select>`);
  if(!D.linhas.length){body.innerHTML=`<p class="muted" style="padding:20px">Nenhuma rota montada ${DASH.aba==='hoje'?'em '+fmtDate(ini):'neste período'}.</p>`;return}
- body.innerHTML=DASH.aba==='hoje'?htmlDashHoje(D):DASH.aba==='hist'?htmlDashHist(D):htmlDashRank(D);
+ body.innerHTML=DASH.aba==='hoje'?htmlDashHoje(D):DASH.aba==='hist'?htmlDashHist(D):DASH.aba==='rank'?htmlDashRank(D):htmlDashRecibo(D);
  clearInterval(DASH.timer);DASH.timer=null;if(DASH.aba==='hoje'&&DASH.dia===isoHoje())DASH.timer=setInterval(()=>{if($('#dash').classList.contains('on')&&!DASH.carregando)renderDash(true)},60000);
 }
 function htmlDashHoje(D){const L=D.linhas,R=D.rotas,K=dashKpis(L,R);const agora=new Date();const nowMin=agora.getHours()*60+agora.getMinutes();const ehHoje=DASH.dia===isoHoje();
@@ -1357,6 +1357,127 @@ function exportarOcorrencias(){if(!window.XLSX){notify('A biblioteca do Excel n�
  const O=linhasOcorrencias(D0.linhas.filter(ft)).map(x=>({Data:fmtDate(x.data),Cliente:x.cliente,Pedido:x.os,Motorista:x.mot,Rota:x.ded?'Dedicada':'Normal',Ocorrência:x.st==='fracassada'?'Fracasso':'Atraso','Atraso (min)':x.atrMin||'',Janela:fmtHM(x.jIni)+'–'+fmtHM(x.jFim),'Horário real':fmtHM(x.h),Motivo:x.st==='fracassada'?(x.obsFx||'Sem motivo informado'):(x.motAtr||'Não informado'),'Código':x.st==='fracassada'?'':((/^([A-Z]{3}) – /.exec(x.motAtr||'')||[])[1]||'')}));
  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(O),'Ocorrências');XLSX.writeFile(wb,'Ocorrencias_'+(periodoDash().join('_a_'))+'.xlsx')}
 document.addEventListener('click',e=>{if(e.target.closest('[data-dxls]'))exportarOcorrencias()});
+const DIAS_CAP=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+function diaSemanaNome(iso){try{return DIAS_CAP[diaSemana(iso)]||''}catch(e){return ''}}
+const RCORR_KEY='kle_recibo_correcoes_v1';
+function carregarRCORR(){try{return JSON.parse(localStorage.getItem(RCORR_KEY))||{}}catch(e){return{}}}
+function salvarRCORR(){try{localStorage.setItem(RCORR_KEY,JSON.stringify(RCORR))}catch(e){}}
+let RCORR=carregarRCORR();
+function chaveRCORR(data,mot){return data+'||'+mot}
+function calcCustoBaseRecibo(veh,km){
+ try{
+  veh=veh||{};
+  if(typeof temAcordo==='function'&&temAcordo(veh))return+veh.valorAcordado||0;
+  let base=veh;
+  if(veh.parentId){const pai=vById(veh.parentId)||{};base={...veh,nivel:veh.nivel||pai.nivel,cotacao:veh.cotacao??pai.cotacao,valorSaida:veh.valorSaida??pai.valorSaida,tarifa:veh.tarifa||pai.tarifa}}
+  return +(tarifaCusto(base,km,cfg().niveis))||0;
+ }catch(e){return null}
+}
+function agruparRecibo(D){
+ const porChave={};
+ (D.rotas||[]).forEach(r=>{
+  const veh=r.veh||{};
+  const motNome=(veh.nomeCompleto||'').trim()||r.mot||veh.motorista||veh.nome||'—';
+  const key=chaveRCORR(r.data,motNome);
+  const g=porChave[key]=porChave[key]||{data:r.data,mot:motNome,veh,km:0,custo:0,ded:false,rotas:0,temNome:!!(veh.nomeCompleto&&veh.nomeCompleto.trim())};
+  g.km+=(+r.km||0);g.custo+=(+r.custo||0);g.rotas++;if(r.ded)g.ded=true;
+ });
+ return Object.values(porChave);
+}
+function linhaFinalRecibo(l){
+ const k=chaveRCORR(l.data,l.mot);
+ const c=RCORR[k]||{};
+ const km=c.km!=null?+c.km:l.km;
+ const custoBase=c.km!=null?(calcCustoBaseRecibo(l.veh,km)??l.custo):l.custo;
+ const ped=c.ped!=null?+c.ped:0,est=c.est!=null?+c.est:0,adc=c.adc!=null?+c.adc:0;
+ const total=(+custoBase||0)+ped+est+adc;
+ const corrigido=c.km!=null||c.ped!=null||c.est!=null||c.adc!=null;
+ return{chave:k,data:l.data,mot:l.mot,km,custoBase,ped,est,adc,total,corrigido,obs:c.obs||'',temNome:l.temNome};
+}
+function htmlDashRecibo(D){
+ const grupos=agruparRecibo(D);
+ if(!grupos.length)return '<p class="muted" style="padding:16px 4px">Nenhuma rota no período selecionado para gerar recibo.</p>';
+ const porMot={};
+ grupos.forEach(g=>{(porMot[g.mot]=porMot[g.mot]||[]).push(g)});
+ const mots=Object.keys(porMot).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+ let h='<div class="row" style="margin:0 0 10px;flex-wrap:wrap;gap:8px;align-items:center">'
+  +'<button class="sm pri" data-rimprimir="1">🖨️ Imprimir recibos</button>'
+  +'<span class="small muted">Km/pedágio/estacionamento/valor adicional dão para corrigir — o total recalcula com a mesma tarifa do roteirizador. Clique fora do campo para salvar.</span>'
+  +'</div>';
+ mots.forEach(mot=>{h+=renderRecGrupo(mot,porMot[mot].sort((a,b)=>a.data.localeCompare(b.data)))});
+ return h;
+}
+function renderRecGrupo(mot,linhas){
+ let totalFinal=0,totalKm=0;
+ const semNome=linhas.some(l=>!l.temNome);
+ const trs=linhas.map(l=>{
+  const f=linhaFinalRecibo(l);
+  totalFinal+=f.total;totalKm+=f.km||0;
+  const bg=f.corrigido?' style="background:rgba(245,158,11,.1)"':'';
+  return '<tr data-rk="'+esc(f.chave)+'"'+bg+'>'
+   +'<td>'+fmtDate(f.data)+'</td>'
+   +'<td>'+diaSemanaNome(f.data)+'</td>'
+   +'<td>'+(l.ded?'🧳':'')+'</td>'
+   +'<td><input class="rin" style="width:58px" type="number" step="0.1" inputmode="decimal" data-rf="km" data-rk="'+esc(f.chave)+'" value="'+(+f.km||0).toFixed(1)+'"></td>'
+   +'<td>'+fmtR(f.custoBase||0)+'</td>'
+   +'<td><input class="rin" style="width:58px" type="number" step="0.01" inputmode="decimal" data-rf="ped" data-rk="'+esc(f.chave)+'" value="'+(f.ped||0)+'"></td>'
+   +'<td><input class="rin" style="width:58px" type="number" step="0.01" inputmode="decimal" data-rf="est" data-rk="'+esc(f.chave)+'" value="'+(f.est||0)+'"></td>'
+   +'<td><input class="rin" style="width:58px" type="number" step="0.01" inputmode="decimal" data-rf="adc" data-rk="'+esc(f.chave)+'" value="'+(f.adc||0)+'"></td>'
+   +'<td><input class="rin rtxt" style="width:110px" type="text" data-rf="obs" data-rk="'+esc(f.chave)+'" value="'+esc(f.obs)+'" placeholder="obs"></td>'
+   +'<td><b>'+fmtR(f.total)+'</b></td>'
+   +'<td>'+(f.corrigido?'<span class="small" style="background:#fef3c7;border:1px solid #f59e0b;border-radius:10px;padding:2px 8px">corrigido</span> <button class="sm ghost" data-rlimpar="'+esc(f.chave)+'" title="Desfazer correção">↺</button>':'<span class="small muted">previsto</span>')+'</td>'
+   +'</tr>';
+ }).join('');
+ return '<div class="dcard" style="margin-bottom:14px">'
+  +'<div class="row" style="margin:0 0 6px;align-items:center">'
+  +'<h3 class="dh" style="margin:0">'+esc(mot)+'</h3>'
+  +(semNome?' <span class="small" style="background:#fee2e2;border:1px solid #b91c1c;border-radius:10px;padding:2px 8px" title="Nome completo não encontrado no cadastro do motorista — confira a grafia antes de enviar ao financeiro.">⚠ confirmar nome</span>':'')
+  +'<span class="spacer"></span>'
+  +'<span class="small muted">'+linhas.length+' dia(s) · '+fmtKm(totalKm)+'</span>'
+  +'</div>'
+  +'<div class="dtw"><table class="dtab">'
+  +'<thead><tr><th>Data</th><th>Dia</th><th></th><th>Km</th><th>Custo base</th><th>Pedágio</th><th>Estac.</th><th>Vlr adic.</th><th>Obs</th><th>Total</th><th>Status</th></tr></thead>'
+  +'<tbody>'+trs+'</tbody>'
+  +'<tfoot><tr><td colspan="9" style="text-align:right">Total do período</td><td colspan="2"><b style="font-size:16px">'+fmtR(totalFinal)+'</b></td></tr></tfoot>'
+  +'</table></div></div>';
+}
+function imprimirRecibos(){
+ const D=DASH.dados;
+ if(!D||!D.linhas||!D.linhas.length){status('Nada para imprimir neste período');return}
+ const grupos=agruparRecibo(D);
+ if(!grupos.length){status('Nada para imprimir neste período');return}
+ const porMot={};grupos.forEach(g=>{(porMot[g.mot]=porMot[g.mot]||[]).push(g)});
+ const mots=Object.keys(porMot).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+ const per=periodoDash();
+ let h='';
+ mots.forEach(mot=>{
+  const linhas=porMot[mot].sort((a,b)=>a.data.localeCompare(b.data));
+  let total=0,totalKm=0;
+  const linhasHtml=linhas.map(l=>{const f=linhaFinalRecibo(l);total+=f.total;totalKm+=f.km||0;
+   return '<tr><td>'+fmtDate(f.data)+'</td><td>'+diaSemanaNome(f.data)+'</td><td>'+fmtKm(f.km)+'</td><td>'+fmtR(f.custoBase||0)+'</td><td>'+fmtR(f.ped||0)+'</td><td>'+fmtR(f.est||0)+'</td><td>'+fmtR(f.adc||0)+'</td><td>'+fmtR(f.total)+'</td></tr>';
+  }).join('');
+  h+='<section>'
+   +'<h2 style="margin:0 0 4px">Recibo de pagamento — '+esc(mot)+'</h2>'
+   +'<div style="margin:0 0 10px">Período: '+fmtDate(per[0])+' a '+fmtDate(per[1])+'</div>'
+   +'<table style="width:100%;border-collapse:collapse"><thead><tr><th>Data</th><th>Dia</th><th>Km</th><th>Custo base</th><th>Pedágio</th><th>Estac.</th><th>Vlr adic.</th><th>Total</th></tr></thead>'
+   +'<tbody>'+linhasHtml+'</tbody></table>'
+   +'<div style="text-align:right;margin-top:10px;font-size:15px"><b>Total a receber: '+fmtR(total)+'</b> ('+fmtKm(totalKm)+')</div>'
+   +'</section>';
+ });
+ $('#print').innerHTML=h;window.print();
+}
+document.addEventListener('change',e=>{
+ const el=e.target;
+ if(!el||!el.matches||!el.matches('.rin'))return;
+ const k=el.dataset.rk,f=el.dataset.rf;
+ if(!k||!f)return;
+ const cur=RCORR[k]=RCORR[k]||{};
+ if(f==='obs'){const v=el.value.trim();if(v)cur.obs=v;else delete cur.obs}
+ else{const v=el.value===''?null:parseFloat(String(el.value).replace(',','.'));if(v==null||isNaN(v))delete cur[f];else cur[f]=v}
+ if(!Object.keys(cur).length)delete RCORR[k];
+ salvarRCORR();
+ renderDash(false);
+});
 function htmlDashRank(D){const L=D.linhas,R=D.rotas;const M={};
  for(const r of R){const m=M[r.mot]=M[r.mot]||{mot:r.mot,R:[],L:[],dias:new Set()};m.R.push(r);m.dias.add(r.data)}
  for(const x of L){const m=M[x.mot];if(m)m.L.push(x)}
@@ -1912,6 +2033,8 @@ document.addEventListener('click',async e=>{
  if(D.dfechar){fecharDash();return}
  if(D.drel){renderDash(true);return}
  if(D.daba){DASH.aba=D.daba;renderDash(false);return}
+ if(D.rimprimir){imprimirRecibos();return}
+ if(D.rlimpar){delete RCORR[D.rlimpar];salvarRCORR();renderDash(false);return}
  if(D.dper){DASH.per=D.dper;renderDash(false);return}
  if(D.dhoje){DASH.dia=isoHoje();renderDash(true);return}
  if(D.fio){const r=rastreio[D.fio];if(r&&map&&r.lat!=null){map.setView([r.lat,r.lng],Math.max(map.getZoom(),15));frotaLayer&&frotaLayer.eachLayer(m=>{const ll=m.getLatLng();if(Math.abs(ll.lat-r.lat)<1e-9&&Math.abs(ll.lng-r.lng)<1e-9)m.openPopup()});document.getElementById('mapwrap')&&document.getElementById('mapwrap').scrollIntoView({behavior:'smooth',block:'start'})}return}
